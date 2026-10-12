@@ -5,7 +5,7 @@ import { deployment } from "../../lib/deployment";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Publisher dashboard",
+  title: "Aria for publishers",
 };
 
 export default function DashboardPage() {
