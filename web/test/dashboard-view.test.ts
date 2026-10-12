@@ -184,14 +184,39 @@ describe("verification rate", () => {
       value: "100%",
       hint: "Share of your ads verified by Chainlink",
     });
-    expect(view.hasVerificationRate).toBe(true);
   });
 
   it("hides the card when the rate is null or missing", () => {
     for (const overrides of [{ trustScoreBps: null }, {}]) {
       const view = toDashboardView(json(overrides), NOW);
       expect(view.cards.some((c) => c.key === "verification")).toBe(false);
-      expect(view.hasVerificationRate).toBe(false);
     }
+  });
+});
+
+describe("data source", () => {
+  it("labels contract logs as the last 2 hours of scanned blocks", () => {
+    const view = toDashboardView(json(), NOW);
+    expect(view.activity).toEqual({
+      aside: "Last 2 hours",
+      empty: "No impressions or clicks in the last 2 hours. Once your app shows an ad, it appears here within seconds.",
+    });
+    expect(view.account).toMatchObject({ source: "Read from contract logs", blocksLabel: "Blocks scanned", blocks: "1000–2000" });
+    expect(toDashboardView(json({ activity: [] }), NOW).activity.aside).toBeUndefined();
+  });
+
+  it("labels the indexer as all activity, and says when the feed is cut", () => {
+    const totals = { ...json().totals, impressions: 0, clicks: 1, rejected: 1 };
+    const base = json({ source: "envio", totals });
+    const view = toDashboardView(base, NOW);
+    expect(view.activity).toEqual({
+      aside: "All activity",
+      empty: "No impressions or clicks yet. Once your app shows an ad, it appears here within a minute.",
+    });
+    expect(view.account).toMatchObject({ source: "Indexed by Envio HyperIndex", blocksLabel: "Blocks indexed" });
+
+    const cut = toDashboardView({ ...base, totals: { ...base.totals, impressions: 80 } }, NOW);
+    expect(cut.activity.aside).toBe("Latest 2 of 82");
+    expect(toDashboardView(json({ source: "envio", activity: [] }), NOW).activity.aside).toBeUndefined();
   });
 });

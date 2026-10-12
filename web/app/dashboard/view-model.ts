@@ -1,4 +1,4 @@
-import type { ActivityStatus, DashboardJson, KindName, RejectReason } from "../../lib/dashboard-data";
+import type { ActivityStatus, DashboardJson, DataSource, KindName, RejectReason } from "../../lib/dashboard-data";
 import { addressUrl, formatDollars, formatMon, formatPercent, publisherKey, timeAgo } from "../../lib/format";
 import type { Tone } from "../receipt/view-model";
 
@@ -23,8 +23,11 @@ export interface DashboardView {
   /** Failed payouts waiting for a retry; null when there are none. */
   retryAmount: string | null;
   feed: FeedRow[];
-  /** The verification rate card is shown, so account details credit its source. */
-  hasVerificationRate: boolean;
+  activity: {
+    /** Scope of the feed shown next to its title; undefined with no rows. */
+    aside: string | undefined;
+    empty: string;
+  };
   publisherId: string;
   latestReceiptUrl: string | null;
   account: {
@@ -33,7 +36,31 @@ export interface DashboardView {
     clearing: string;
     clearingUrl: string;
     mon: string;
+    /** Where totals and the feed were read from. */
+    source: string;
+    blocksLabel: string;
     blocks: string;
+  };
+}
+
+const SOURCES: Record<DataSource, { label: string; blocks: string }> = {
+  envio: { label: "Indexed by Envio HyperIndex", blocks: "Blocks indexed" },
+  logs: { label: "Read from contract logs", blocks: "Blocks scanned" },
+};
+
+/** Feed scope and empty-state text for the source the data came from. */
+export function activityScope(json: DashboardJson): DashboardView["activity"] {
+  const shown = json.activity.length;
+  if (json.source === "logs") {
+    return {
+      aside: shown ? "Last 2 hours" : undefined,
+      empty: "No impressions or clicks in the last 2 hours. Once your app shows an ad, it appears here within seconds.",
+    };
+  }
+  const total = json.totals.impressions + json.totals.clicks + json.totals.rejected;
+  return {
+    aside: !shown ? undefined : shown < total ? `Latest ${shown} of ${total.toLocaleString("en-US")}` : "All activity",
+    empty: "No impressions or clicks yet. Once your app shows an ad, it appears here within a minute.",
   };
 }
 
@@ -144,7 +171,6 @@ export function toDashboardView(json: DashboardJson, now: number): DashboardView
       },
       ...(verification ? [verification] : []),
     ],
-    hasVerificationRate: verification !== null,
     balance: formatDollars(BigInt(json.usdc)),
     retryAmount: credit > 0n ? formatDollars(credit) : null,
     feed: json.activity.map((item) => ({
@@ -154,6 +180,7 @@ export function toDashboardView(json: DashboardJson, now: number): DashboardView
       when: timeAgo(item.time, now),
       receiptUrl: receiptUrl(item.requestId),
     })),
+    activity: activityScope(json),
     publisherId: publisherKey(json.address),
     latestReceiptUrl: json.activity[0] ? receiptUrl(json.activity[0].requestId) : null,
     account: {
@@ -162,6 +189,8 @@ export function toDashboardView(json: DashboardJson, now: number): DashboardView
       clearing: json.clearing,
       clearingUrl: addressUrl(json.clearing),
       mon: formatMon(BigInt(json.mon)),
+      source: SOURCES[json.source].label,
+      blocksLabel: SOURCES[json.source].blocks,
       blocks: `${json.fromBlock}–${json.toBlock}`,
     },
   };

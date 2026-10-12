@@ -170,13 +170,11 @@ function FeedItem({ row }: { row: FeedRow }) {
 
 function Activity({ view }: { view: DashboardView | null }) {
   return (
-    <Section title="Activity" aside={view?.feed.length ? "Last 2 hours" : undefined}>
+    <Section title="Activity" aside={view?.activity.aside}>
       {!view ? (
         <p className="text-sm text-stone-500">Loading activity…</p>
       ) : view.feed.length === 0 ? (
-        <p className="text-sm text-stone-500">
-          No impressions or clicks in the last 2 hours. Once your app shows an ad, it appears here within seconds.
-        </p>
+        <p className="text-sm text-stone-500">{view.activity.empty}</p>
       ) : (
         <ul className="divide-y divide-stone-100">
           {view.feed.map((row) => (
@@ -217,15 +215,11 @@ function AccountDetails({ view, email }: { view: DashboardView; email?: string }
         </dd>
         <dt className="text-stone-500">Network</dt>
         <dd>Monad testnet · payouts in USDC</dd>
-        {view.hasVerificationRate && (
-          <>
-            <dt className="text-stone-500">Verification rate</dt>
-            <dd>Indexed by Envio HyperIndex</dd>
-          </>
-        )}
+        <dt className="text-stone-500">Activity data</dt>
+        <dd>{account.source}</dd>
         <dt className="text-stone-500">Native balance</dt>
         <dd className="font-mono">{account.mon} MON</dd>
-        <dt className="text-stone-500">Blocks scanned</dt>
+        <dt className="text-stone-500">{account.blocksLabel}</dt>
         <dd className="font-mono">{account.blocks}</dd>
       </dl>
     </details>
