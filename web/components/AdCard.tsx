@@ -17,7 +17,12 @@ export default function AdCard({ card }: { card: CardData }) {
   useImpression(ref, card.requestId, !useHoldViews());
 
   return (
-    <aside ref={ref} data-aria-card="" className="mt-5 border-t border-neutral-200 pt-3 pl-4 text-sm dark:border-neutral-800">
+    // The Visit link stretches over the whole card, so any click on it is the tracked click.
+    <aside
+      ref={ref}
+      data-aria-card=""
+      className="group relative mt-5 cursor-pointer rounded-md border-t border-neutral-200 pt-3 pb-2 pl-4 pr-2 text-sm transition hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-900"
+    >
       <div className="text-[11px] uppercase tracking-wider text-neutral-500">
         Sponsored · {card.advertiser}
       </div>
@@ -29,11 +34,16 @@ export default function AdCard({ card }: { card: CardData }) {
           href={`/api/aria/click/${card.requestId}`}
           target="_blank"
           rel="sponsored noopener"
-          className="text-neutral-900 underline underline-offset-2 dark:text-neutral-100"
+          className="text-neutral-900 underline underline-offset-2 after:absolute after:inset-0 after:content-[''] dark:text-neutral-100"
         >
           Visit {card.advertiser}
         </a>
-        <a href={receiptHref(card)} target="_blank" rel="noopener noreferrer" className="text-neutral-500 hover:underline">
+        <a
+          href={receiptHref(card)}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="relative z-10 text-neutral-500 hover:underline"
+        >
           Why this ad?
         </a>
       </div>

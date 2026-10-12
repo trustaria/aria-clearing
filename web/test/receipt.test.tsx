@@ -83,6 +83,17 @@ describe("AdCard", () => {
     expect(html).toContain("Why this ad?");
   });
 
+  it("makes the whole card the tracked click while Why this ad? stays its own link", () => {
+    const visit = html.match(/<a[^>]*href="\/api\/aria\/click\/[^"]*"[^>]*>/)![0];
+    const why = html.match(/<a[^>]*href="\/receipt\/[^"]*"[^>]*>/)![0];
+    expect(html).toMatch(/<aside[^>]*class="[^"]*\brelative\b/);
+    expect(visit).toContain("after:absolute");
+    expect(visit).toContain("after:inset-0");
+    expect(why).toContain("relative");
+    expect(why).toContain("z-10");
+    expect(html.match(/href="\/api\/aria\/click\//g)).toHaveLength(1);
+  });
+
   it("opens the receipt page in a new tab so the chat stays open", () => {
     const why = html.match(/<a[^>]*href="\/receipt\/[^"]*"[^>]*>/)![0];
     expect(why).toContain('target="_blank"');
