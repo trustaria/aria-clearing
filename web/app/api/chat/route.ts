@@ -1,5 +1,6 @@
 import { allCampaigns, campaignBySlug } from "@/lib/campaigns";
-import { activeModel, pickCampaign, streamAnswer, type ChatFrame, type ChatMessage } from "@/lib/kimi";
+import { activeModel, streamTurn, type ChatFrame, type ChatMessage } from "@/lib/kimi";
+import type { Pick } from "@/lib/pick";
 import { buildCard, chainConfig } from "@/lib/receipt";
 import { newRequestId } from "@/lib/request-id";
 import { rememberServed } from "@/lib/served";
@@ -18,8 +19,8 @@ function parseMessages(body: unknown): ChatMessage[] | null {
 }
 
 /**
- * Streams the answer as NDJSON frames. The campaign pick runs in parallel and adds a
- * `card` frame when it resolves in time; a failed or slow pick only means no card.
+ * Streams the answer as NDJSON frames: meta, text deltas, a `card` frame when the turn picked a
+ * campaign, then done. A missing or invalid pick only means no card.
  */
 export async function POST(req: Request) {
   const messages = parseMessages(await req.json().catch(() => null));
@@ -29,7 +30,6 @@ export async function POST(req: Request) {
   if (!model) return Response.json({ error: "KIMI_API_KEY is not set" }, { status: 503 });
 
   const requestId = newRequestId();
-  const question = messages[messages.length - 1].content;
   const encoder = new TextEncoder();
   const abort = new AbortController();
   req.signal.addEventListener("abort", () => abort.abort());
@@ -42,7 +42,7 @@ export async function POST(req: Request) {
       send({ type: "meta", requestId, model });
 
       const pickable = allCampaigns();
-      const picked = pickCampaign(model, question, pickable).then((pick) => {
+      const sendCard = (pick: Pick | null) => {
         const campaign = pick && campaignBySlug(pick.slug, pickable);
         if (!pick || !campaign) return;
         const card = buildCard({ ...chainConfig(), requestId, campaign, pick });
@@ -55,16 +55,24 @@ export async function POST(req: Request) {
           servedAt: Date.now(),
         });
         send({ type: "card", card });
-      });
+      };
 
       try {
-        for await (const delta of streamAnswer(model, messages, abort.signal)) send({ type: "text", delta });
+        for await (const event of streamTurn(model, messages, pickable, abort.signal)) {
+          if (event.type === "text") send({ type: "text", delta: event.delta });
+          else {
+            try {
+              sendCard(event.pick);
+            } catch (error) {
+              console.warn(`card failed: ${(error as Error).message}`);
+            }
+          }
+        }
       } catch (error) {
         console.warn(`answer failed: ${(error as Error).message}`);
         send({ type: "error", message: "The model is unavailable right now." });
       }
 
-      await picked.catch(() => undefined);
       send({ type: "done" });
       if (!abort.signal.aborted) controller.close();
     },

@@ -1,7 +1,8 @@
 import OpenAI from "openai";
 import type { CompletionUsage } from "openai/resources/completions";
 import { describeCampaigns, type Campaign } from "./campaigns";
-import { MAX_RATIONALE, parsePickJson, PICK_DEADLINE_MS, pickWithDeadline, validatePick, type Pick } from "./pick";
+import { kimiLimiter } from "./kimi-limiter";
+import { MAX_RATIONALE, parsePickJson, validatePick, type Pick } from "./pick";
 import type { CardData } from "./receipt";
 import { stubAnswer, stubPick } from "./stub";
 
@@ -19,17 +20,22 @@ export type ChatFrame =
 
 const DEFAULT_BASE_URL = "https://api.moonshot.ai/v1";
 
+/** How long a KIMI request may wait for a rate-limit slot, 429 retries included. */
+export const KIMI_START_DEADLINE_MS = 20_000;
+
+/** Marks the start of the hidden pick line at the end of a chat reply. */
+export const PICK_SENTINEL = "<<<ARIA_PICK>>>";
+
 const ANSWER_SYSTEM = [
   "You are Nova, a concise and helpful assistant.",
   "Answer in plain text: short paragraphs or simple '-' lists, no headings, no tables, no bold.",
   "Keep answers under 180 words. Never mention ads or sponsors.",
 ].join(" ");
 
-const PICK_SYSTEM = [
-  "You choose at most one sponsored card to show next to an AI assistant's answer, as a careful ad network would.",
-  "Reply with one JSON object only, keys in this order:",
-  '{"intent": "commercial" | "informational" | "sensitive", "slug": string | null, "claimRefs": number[], "rationale": string}',
-  "",
+const PICK_KEYS =
+  '{"intent": "commercial" | "informational" | "sensitive", "slug": string | null, "claimRefs": number[], "rationale": string}';
+
+const PICK_RULES = [
   "intent:",
   "- commercial: the user is choosing, comparing, planning, booking, or deciding whether to buy or try something,",
   "and a product or service in the list would genuinely help with that decision. Examples: what should I book,",
@@ -51,6 +57,32 @@ const PICK_SYSTEM = [
   'No claim numbers or brackets in the sentence. "" when slug is null.',
 ].join("\n");
 
+const PICK_SYSTEM = [
+  "You choose at most one sponsored card to show next to an AI assistant's answer, as a careful ad network would.",
+  "Reply with one JSON object only, keys in this order:",
+  PICK_KEYS,
+  "",
+  PICK_RULES,
+].join("\n");
+
+/** System prompt for one chat turn: the answer, then a final pick line for the latest user message. */
+function turnSystem(campaigns: Campaign[]): string {
+  return [
+    ANSWER_SYSTEM,
+    "",
+    `After the answer, end your reply with one last line: ${PICK_SENTINEL} followed by one JSON object, keys in this order:`,
+    PICK_KEYS,
+    "The user never sees that line. It chooses at most one sponsored card to show next to your answer,",
+    "as a careful ad network would, for the user's latest message. Never refer to it in the answer.",
+    "",
+    PICK_RULES,
+    "",
+    "Campaigns:",
+    "",
+    describeCampaigns(campaigns),
+  ].join("\n");
+}
+
 /** The active model: KIMI when KIMI_API_KEY is set, otherwise the dev-only stub. */
 export function activeModel(): ModelName | null {
   if (process.env.KIMI_API_KEY) return "kimi";
@@ -62,6 +94,8 @@ export function kimiClient(): OpenAI {
   return new OpenAI({
     apiKey: process.env.KIMI_API_KEY,
     baseURL: process.env.KIMI_BASE_URL || DEFAULT_BASE_URL,
+    // 429s are retried by the limiter, which counts every attempt.
+    maxRetries: 0,
   });
 }
 
@@ -80,7 +114,122 @@ export function kimiBody<T extends object>(body: T): T & { thinking: { type: "di
   return { ...body, thinking: { type: "disabled" } };
 }
 
-/** Streams the answer text. */
+/**
+ * Holds back the pick line of a streamed reply. `push` returns the text that is safe to show and keeps
+ * any tail that may start the sentinel (with the whitespace before it) until the next delta resolves it.
+ */
+export class PickSplitter {
+  private held = "";
+  private payload: string | null = null;
+
+  push(delta: string): string {
+    if (this.payload !== null) {
+      this.payload += delta;
+      return "";
+    }
+    this.held += delta;
+    const at = this.held.indexOf(PICK_SENTINEL);
+    if (at >= 0) {
+      this.payload = this.held.slice(at + PICK_SENTINEL.length);
+      const text = this.held.slice(0, at).trimEnd();
+      this.held = "";
+      return text;
+    }
+    let keep = Math.min(PICK_SENTINEL.length - 1, this.held.length);
+    while (keep > 0 && !this.held.endsWith(PICK_SENTINEL.slice(0, keep))) keep--;
+    let cut = this.held.length - keep;
+    while (cut > 0 && /\s/.test(this.held[cut - 1])) cut--;
+    const text = this.held.slice(0, cut);
+    this.held = this.held.slice(cut);
+    return text;
+  }
+
+  /** The held answer text, and everything after the sentinel (null when it never came). */
+  end(): { text: string; payload: string | null } {
+    const text = this.payload === null ? this.held : "";
+    this.held = "";
+    return { text, payload: this.payload };
+  }
+}
+
+/** The first balanced JSON object in `text`, or null. */
+function firstJsonObject(text: string): string | null {
+  const start = text.indexOf("{");
+  if (start === -1) return null;
+  let depth = 0;
+  let inString = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (ch === "\\") i++;
+      else if (ch === '"') inString = false;
+    } else if (ch === '"') inString = true;
+    else if (ch === "{") depth++;
+    else if (ch === "}" && --depth === 0) return text.slice(start, i + 1);
+  }
+  return null;
+}
+
+/** Turns the text after the sentinel into a pick; null when it is missing, malformed, not commercial or invalid. */
+export function parseTurnPick(payload: string | null, campaigns: Campaign[]): Pick | null {
+  const json = payload ? firstJsonObject(payload) : null;
+  if (!json) return null;
+  try {
+    const raw = JSON.parse(json) as Record<string, unknown>;
+    if (raw.intent !== undefined && raw.intent !== "commercial") return null;
+    return validatePick(raw, campaigns);
+  } catch {
+    return null;
+  }
+}
+
+export type TurnEvent = { type: "text"; delta: string } | { type: "pick"; pick: Pick | null };
+
+/**
+ * One chat turn: streams the answer text, then yields the validated pick.
+ * KIMI answers and picks in one streamed request; the stub answers with fixed text and picks by keyword.
+ */
+export async function* streamTurn(
+  model: ModelName,
+  messages: ChatMessage[],
+  campaigns: Campaign[],
+  signal: AbortSignal,
+): AsyncGenerator<TurnEvent> {
+  if (model === "stub") {
+    for await (const delta of stubAnswer()) yield { type: "text", delta };
+    const question = messages[messages.length - 1]?.content ?? "";
+    yield { type: "pick", pick: validatePick(stubPick(question, campaigns), campaigns) };
+    return;
+  }
+  const { value: stream, release } = await kimiLimiter().start(
+    () =>
+      kimiClient().chat.completions.create(
+        kimiBody({
+          model: kimiModel(),
+          stream: true as const,
+          messages: [{ role: "system" as const, content: turnSystem(campaigns) }, ...messages],
+        }),
+        { signal },
+      ),
+    { deadline: Date.now() + KIMI_START_DEADLINE_MS, signal },
+  );
+  try {
+    const splitter = new PickSplitter();
+    for await (const chunk of stream) {
+      const delta = chunk.choices[0]?.delta?.content;
+      const text = delta ? splitter.push(delta) : "";
+      if (text) yield { type: "text", delta: text };
+    }
+    const { text, payload } = splitter.end();
+    if (text) yield { type: "text", delta: text };
+    if (payload === null) console.warn("pick line missing");
+    yield { type: "pick", pick: parseTurnPick(payload, campaigns) };
+  } finally {
+    release();
+  }
+}
+
+/** Streams the answer text alone, without a pick. */
 export async function* streamAnswer(
   model: ModelName,
   messages: ChatMessage[],
@@ -90,25 +239,33 @@ export async function* streamAnswer(
     yield* stubAnswer();
     return;
   }
-  const stream = await kimiClient().chat.completions.create(
-    kimiBody({
-      model: kimiModel(),
-      stream: true as const,
-      messages: [{ role: "system" as const, content: ANSWER_SYSTEM }, ...messages],
-    }),
-    { signal },
+  const { value: stream, release } = await kimiLimiter().start(
+    () =>
+      kimiClient().chat.completions.create(
+        kimiBody({
+          model: kimiModel(),
+          stream: true as const,
+          messages: [{ role: "system" as const, content: ANSWER_SYSTEM }, ...messages],
+        }),
+        { signal },
+      ),
+    { deadline: Date.now() + KIMI_START_DEADLINE_MS, signal },
   );
-  for await (const chunk of stream) {
-    const delta = chunk.choices[0]?.delta?.content;
-    if (delta) yield delta;
+  try {
+    for await (const chunk of stream) {
+      const delta = chunk.choices[0]?.delta?.content;
+      if (delta) yield delta;
+    }
+  } finally {
+    release();
   }
 }
 
 export type PickReply = { raw: unknown; usage?: CompletionUsage };
 
 /**
- * One pick request: the parsed JSON reply and its token usage. Throws on unparseable output.
- * `maxRetries` overrides the client's automatic retries on 429 and 5xx.
+ * One standalone pick request: the parsed JSON reply and its token usage. Throws on unparseable output.
+ * `maxRetries` overrides the limiter's 429 retries.
  */
 export async function requestPick(
   question: string,
@@ -117,40 +274,20 @@ export async function requestPick(
   maxRetries?: number,
 ): Promise<PickReply> {
   const user = `Campaigns:\n\n${describeCampaigns(campaigns)}\n\nQuestion: ${question}`;
-  const res = await kimiClient().chat.completions.create(
-    kimiBody({
-      model: kimiModel(),
-      response_format: { type: "json_object" as const },
-      messages: [
-        { role: "system" as const, content: PICK_SYSTEM },
-        { role: "user" as const, content: user },
-      ],
-    }),
-    { signal, maxRetries },
+  const res = await kimiLimiter().run(
+    () =>
+      kimiClient().chat.completions.create(
+        kimiBody({
+          model: kimiModel(),
+          response_format: { type: "json_object" as const },
+          messages: [
+            { role: "system" as const, content: PICK_SYSTEM },
+            { role: "user" as const, content: user },
+          ],
+        }),
+        { signal },
+      ),
+    { deadline: Date.now() + KIMI_START_DEADLINE_MS, signal, retries: maxRetries },
   );
   return { raw: parsePickJson(res.choices[0]?.message?.content ?? ""), usage: res.usage };
-}
-
-async function kimiPick(question: string, campaigns: Campaign[], signal: AbortSignal): Promise<Pick | null> {
-  // One retry for unparseable output, inside the same deadline.
-  for (let attempt = 0; ; attempt++) {
-    try {
-      return validatePick((await requestPick(question, campaigns, signal)).raw, campaigns);
-    } catch (error) {
-      if (attempt >= 1 || signal.aborted) throw error;
-    }
-  }
-}
-
-/** Picks a campaign for the question, or null. Never rejects; gives up after the deadline. */
-export function pickCampaign(model: ModelName, question: string, campaigns: Campaign[]): Promise<Pick | null> {
-  if (model === "stub") return Promise.resolve(validatePick(stubPick(question, campaigns), campaigns));
-  return pickWithDeadline(
-    (signal) =>
-      kimiPick(question, campaigns, signal).catch((error: Error) => {
-        if (!signal.aborted) console.warn(`pick failed: ${error.message}`);
-        throw error;
-      }),
-    PICK_DEADLINE_MS,
-  );
 }
