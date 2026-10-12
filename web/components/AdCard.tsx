@@ -1,9 +1,17 @@
+"use client";
+
 import { normalizeRationale } from "@aria-clearing/receipt";
+import { useRef } from "react";
+import { useHoldViews } from "../lib/debug-flags";
 import { receiptJson, type CardData } from "../lib/receipt";
+import { useImpression } from "../lib/useImpression";
 
 export default function AdCard({ card }: { card: CardData }) {
+  const ref = useRef<HTMLElement>(null);
+  useImpression(ref, card.requestId, !useHoldViews());
+
   return (
-    <aside data-aria-card="" className="mt-5 border-t border-neutral-200 pt-3 pl-4 text-sm dark:border-neutral-800">
+    <aside ref={ref} data-aria-card="" className="mt-5 border-t border-neutral-200 pt-3 pl-4 text-sm dark:border-neutral-800">
       <div className="text-[11px] uppercase tracking-wider text-neutral-500">
         Sponsored · {card.advertiser}
       </div>
