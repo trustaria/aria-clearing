@@ -1,7 +1,11 @@
+import { ariaClearingAbi } from "@aria-clearing/receipt";
 import type { AbiSchema, PolicyCreateParams } from "@privy-io/node/resources";
+import { erc20Abi } from "viem";
 
 export const MONAD_TESTNET_CHAIN_ID = 10143;
 export const MONAD_TESTNET_CAIP2 = `eip155:${MONAD_TESTNET_CHAIN_ID}`;
+/** Circle USDC on Monad testnet, the token AriaClearing escrows. */
+export const MONAD_TESTNET_USDC = "0x534b2f3A21130d7a60830c2Df862319e593943A3";
 
 type PolicyBody = Omit<PolicyCreateParams, "owner" | "owner_id" | "privy-idempotency-key">;
 type Rule = PolicyCreateParams.Rule;
@@ -57,6 +61,43 @@ export function relayerPolicy(input: { clearingAddress: string; abi: readonly Ab
           },
         ],
       },
+    ],
+  };
+}
+
+function callsFunction(abi: readonly AbiItem[], name: string): Condition {
+  return { field_source: "ethereum_calldata", field: "function_name", abi: functionAbi(abi, name), operator: "eq", value: name };
+}
+
+function allowSend(name: string, conditions: Condition[]): Rule {
+  return { name, method: "eth_sendTransaction", action: "ALLOW", conditions: [onMonadTestnet(), ...conditions] };
+}
+
+/**
+ * Allows the treasury only USDC `approve` with AriaClearing as spender, and AriaClearing `createCampaign`,
+ * `dispute` and `withdraw`, on Monad testnet. Everything else, including any USDC transfer, falls to default deny.
+ */
+export function treasuryPolicy(input: { clearingAddress: string; usdcAddress: string }): PolicyBody {
+  const clearing = toAddress(input.clearingAddress);
+  return {
+    version: "1.0",
+    name: "Aria treasury: escrow only",
+    chain_type: "ethereum",
+    rules: [
+      allowSend("Allow USDC approve to AriaClearing", [
+        toAddress(input.usdcAddress),
+        callsFunction(erc20Abi, "approve"),
+        {
+          field_source: "ethereum_calldata",
+          field: "approve.spender",
+          abi: functionAbi(erc20Abi, "approve"),
+          operator: "eq",
+          value: normalizeAddress(input.clearingAddress),
+        },
+      ]),
+      allowSend("Allow createCampaign on AriaClearing", [clearing, callsFunction(ariaClearingAbi, "createCampaign")]),
+      allowSend("Allow dispute on AriaClearing", [clearing, callsFunction(ariaClearingAbi, "dispute")]),
+      allowSend("Allow withdraw on AriaClearing", [clearing, callsFunction(ariaClearingAbi, "withdraw")]),
     ],
   };
 }
