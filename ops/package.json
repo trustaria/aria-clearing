@@ -10,6 +10,8 @@
     "privy:relayer": "tsx scripts/relayer.ts",
     "privy:policy": "tsx scripts/policy.ts",
     "privy:probe": "tsx scripts/probe.ts",
+    "privy:treasury": "tsx scripts/treasury.ts",
+    "privy:treasury-probe": "tsx scripts/treasury-probe.ts",
     "log-event": "tsx scripts/log-event.ts"
   },
   "dependencies": {
