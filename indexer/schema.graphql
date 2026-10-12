@@ -1,0 +1,64 @@
+enum EventStatus {
+  logged
+  disputed
+  released
+  rejected
+}
+
+enum EventKind {
+  impression
+  click
+}
+
+type Campaign {
+  id: ID!
+  advertiser: String! @index
+  claimsHash: String!
+  priceImpression: BigInt!
+  priceClick: BigInt!
+  budget: BigInt!
+  # Sum of released event prices
+  spent: BigInt!
+  # Sum of rejected event prices, returned to the budget
+  refunded: BigInt!
+  withdrawn: BigInt!
+  events: [ClearingEvent!]! @derivedFrom(field: "campaign")
+}
+
+type ClearingEvent {
+  # eventId
+  id: ID!
+  requestId: String!
+  campaign: Campaign!
+  publisher: Publisher!
+  kind: EventKind!
+  price: BigInt!
+  status: EventStatus! @index
+  # True once the advertiser disputed it, kept after settlement
+  wasDisputed: Boolean!
+  paid: Boolean!
+  # Block timestamps, seconds
+  loggedAt: Int! @index
+  loggedTx: String!
+  settledAt: Int
+  settledTx: String
+  paidTx: String
+}
+
+type Publisher {
+  # Checksummed address
+  id: ID!
+  impressions: Int!
+  clicks: Int!
+  # Each event sits in exactly one of these four buckets, by its current status
+  pending: Int!
+  disputed: Int!
+  released: Int!
+  rejected: Int!
+  # USDC (6 decimals) transferred to the publisher: PaidOut plus Claimed
+  earned: BigInt!
+  # released / (released + rejected + disputed) in basis points; null until an event is settled or disputed
+  trustScoreBps: Int
+  lastActivityAt: Int!
+  events: [ClearingEvent!]! @derivedFrom(field: "publisher")
+}

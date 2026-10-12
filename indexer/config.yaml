@@ -1,0 +1,24 @@
+# yaml-language-server: $schema=./node_modules/envio/evm.schema.json
+name: aria-clearing-indexer
+description: AriaClearing campaigns, events and publisher trust scores on Monad testnet
+field_selection:
+  transaction_fields: [hash]
+contracts:
+  - name: AriaClearing
+    handler: ./src/EventHandlers.ts
+    events:
+      - event: CampaignCreated(bytes32 indexed campaignId, address indexed advertiser, string claims, bytes32 claimsHash, uint256 priceImpression, uint256 priceClick, uint256 budget)
+      - event: EventLogged(bytes32 indexed eventId, bytes32 indexed requestKey, bytes32 indexed campaignId, string requestId, address publisher, uint8 kind, string rationale, bytes32 rationaleHash, uint8[] claimRefs, uint256 price)
+      - event: EventDisputed(bytes32 indexed eventId)
+      - event: EventSettled(bytes32 indexed eventId, uint8 outcome)
+      - event: PaidOut(bytes32 indexed eventId, address indexed publisher, uint256 amount)
+      - event: PayoutDeferred(bytes32 indexed eventId, address indexed publisher, uint256 amount)
+      - event: Claimed(address indexed publisher, uint256 amount)
+      - event: Withdrawn(bytes32 indexed campaignId, uint256 amount)
+chains:
+  # Monad testnet. `pnpm sync-config` rewrites address and start_block from deployments/10143.json.
+  - id: 10143
+    start_block: 70463246
+    contracts:
+      - name: AriaClearing
+        address: "0xeCED10b07169857eE91441BBDdeb9653bF7cC041"
