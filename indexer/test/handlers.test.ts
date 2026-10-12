@@ -1,0 +1,209 @@
+import { describe, expect, it } from "vitest";
+import { createTestIndexer, TestHelpers } from "envio";
+
+const CHAIN = 10143;
+const [PUB_A, PUB_B, ADVERTISER] = TestHelpers.Addresses.mockAddresses as [string, string, string];
+const CAMPAIGN = `0x${"c".repeat(64)}`;
+const id = (n: number) => `0x${n.toString(16).padStart(64, "0")}`;
+const tx = (n: number) => `0x${(1000 + n).toString(16).padStart(64, "0")}`;
+
+let block = 70_463_300;
+const at = () => {
+  block += 1;
+  return { number: block, timestamp: 1_760_000_000 + block };
+};
+
+const campaignCreated = () =>
+  ({
+    contract: "AriaClearing",
+    event: "CampaignCreated",
+    block: at(),
+    params: {
+      campaignId: CAMPAIGN,
+      advertiser: ADVERTISER,
+      claims: "1. Fast",
+      claimsHash: id(99),
+      priceImpression: 10_000n,
+      priceClick: 50_000n,
+      budget: 1_000_000n,
+    },
+  }) as const;
+
+const logged = (n: number, publisher: string, kind = 0n, price = 10_000n) =>
+  ({
+    contract: "AriaClearing",
+    event: "EventLogged",
+    block: at(),
+    transaction: { hash: tx(n) },
+    params: {
+      eventId: id(n),
+      requestKey: id(500 + n),
+      campaignId: CAMPAIGN,
+      requestId: `req_${n}`,
+      publisher,
+      kind,
+      rationale: "Because",
+      rationaleHash: id(600 + n),
+      claimRefs: [1n],
+      price,
+    },
+  }) as const;
+
+const disputed = (n: number) =>
+  ({ contract: "AriaClearing", event: "EventDisputed", block: at(), params: { eventId: id(n) } }) as const;
+
+const settled = (n: number, outcome: bigint) =>
+  ({
+    contract: "AriaClearing",
+    event: "EventSettled",
+    block: at(),
+    transaction: { hash: tx(100 + n) },
+    params: { eventId: id(n), outcome },
+  }) as const;
+
+const paidOut = (n: number, publisher: string, amount: bigint) =>
+  ({
+    contract: "AriaClearing",
+    event: "PaidOut",
+    block: at(),
+    transaction: { hash: tx(200 + n) },
+    params: { eventId: id(n), publisher, amount },
+  }) as const;
+
+const RELEASED = 3n;
+const REJECTED = 4n;
+
+describe("AriaClearing handlers", () => {
+  it("logs, releases and pays an event", async () => {
+    const indexer = createTestIndexer();
+    await indexer.process({
+      chains: {
+        [CHAIN]: {
+          simulate: [campaignCreated(), logged(1, PUB_A), logged(2, PUB_A, 1n, 50_000n)],
+        },
+      },
+    });
+
+    expect(await indexer.Publisher.getOrThrow(PUB_A)).toMatchObject({
+      impressions: 1,
+      clicks: 1,
+      pending: 2,
+      released: 0,
+      trustScoreBps: undefined,
+    });
+    expect(await indexer.ClearingEvent.getOrThrow(id(2))).toMatchObject({
+      requestId: "req_2",
+      campaign_id: CAMPAIGN,
+      publisher_id: PUB_A,
+      kind: "click",
+      status: "logged",
+      paid: false,
+      loggedTx: tx(2),
+    });
+
+    await indexer.process({
+      chains: { [CHAIN]: { simulate: [settled(1, RELEASED), paidOut(1, PUB_A, 10_000n)] } },
+    });
+
+    expect(await indexer.ClearingEvent.getOrThrow(id(1))).toMatchObject({
+      status: "released",
+      paid: true,
+      settledTx: tx(101),
+      paidTx: tx(201),
+    });
+    expect(await indexer.Publisher.getOrThrow(PUB_A)).toMatchObject({
+      pending: 1,
+      released: 1,
+      earned: 10_000n,
+      trustScoreBps: 10_000,
+    });
+    expect(await indexer.Campaign.getOrThrow(CAMPAIGN)).toMatchObject({ spent: 10_000n, refunded: 0n });
+  });
+
+  it("moves a disputed event to rejected without counting it twice", async () => {
+    const indexer = createTestIndexer();
+    await indexer.process({
+      chains: {
+        [CHAIN]: {
+          simulate: [campaignCreated(), logged(1, PUB_A), logged(2, PUB_A), settled(1, RELEASED), disputed(2)],
+        },
+      },
+    });
+
+    expect(await indexer.Publisher.getOrThrow(PUB_A)).toMatchObject({
+      pending: 0,
+      disputed: 1,
+      released: 1,
+      rejected: 0,
+      trustScoreBps: 5_000,
+    });
+    expect((await indexer.ClearingEvent.getOrThrow(id(2))).status).toBe("disputed");
+
+    await indexer.process({ chains: { [CHAIN]: { simulate: [settled(2, REJECTED)] } } });
+
+    expect(await indexer.Publisher.getOrThrow(PUB_A)).toMatchObject({
+      pending: 0,
+      disputed: 0,
+      released: 1,
+      rejected: 1,
+      trustScoreBps: 5_000,
+    });
+    expect(await indexer.ClearingEvent.getOrThrow(id(2))).toMatchObject({
+      status: "rejected",
+      wasDisputed: true,
+      paid: false,
+    });
+    expect(await indexer.Campaign.getOrThrow(CAMPAIGN)).toMatchObject({ spent: 10_000n, refunded: 10_000n });
+  });
+
+  it("scores publishers independently and ignores repeats and unknown ids", async () => {
+    const indexer = createTestIndexer();
+    await indexer.process({
+      chains: {
+        [CHAIN]: {
+          simulate: [
+            campaignCreated(),
+            logged(1, PUB_A),
+            logged(2, PUB_B),
+            logged(3, PUB_B),
+            settled(1, RELEASED),
+            settled(2, RELEASED),
+            settled(3, REJECTED),
+            settled(1, REJECTED),
+            settled(42, RELEASED),
+            disputed(43),
+          ],
+        },
+      },
+    });
+
+    expect(await indexer.Publisher.getOrThrow(PUB_A)).toMatchObject({ released: 1, rejected: 0, trustScoreBps: 10_000 });
+    expect(await indexer.Publisher.getOrThrow(PUB_B)).toMatchObject({ released: 1, rejected: 1, trustScoreBps: 5_000 });
+    expect(await indexer.ClearingEvent.get(id(42))).toBeUndefined();
+  });
+
+  it("adds claimed credit to earned", async () => {
+    const indexer = createTestIndexer();
+    await indexer.process({
+      chains: {
+        [CHAIN]: {
+          simulate: [
+            campaignCreated(),
+            logged(1, PUB_A),
+            settled(1, RELEASED),
+            {
+              contract: "AriaClearing",
+              event: "PayoutDeferred",
+              block: at(),
+              params: { eventId: id(1), publisher: PUB_A, amount: 10_000n },
+            },
+            { contract: "AriaClearing", event: "Claimed", block: at(), params: { publisher: PUB_A, amount: 10_000n } },
+          ],
+        },
+      },
+    });
+
+    expect(await indexer.Publisher.getOrThrow(PUB_A)).toMatchObject({ released: 1, earned: 10_000n });
+    expect((await indexer.ClearingEvent.getOrThrow(id(1))).paid).toBe(false);
+  });
+});
