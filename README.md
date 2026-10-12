@@ -130,7 +130,7 @@ graph LR
     CRE -->|one evidence fetch| EvAPI
     CRE -->|report| F -->|onReport: settle + pay| C
     Envio[Envio HyperIndex] -. indexes .-> C
-    Envio --> Dash
+    Envio -->|totals, activity feed, trust score| Dash
     Verify[receipt/ verify] -->|public RPC only| C
 ```
 
@@ -139,7 +139,7 @@ graph LR
 | `contracts/` | `AriaClearing.sol` (escrow, event log, disputes, CRE consumer, payouts), Foundry tests, deploy and seed scripts |
 | `receipt/` | the hash recipe, the ABI, `verifyReceipt()` and the `verify` CLI; depends on viem only |
 | `cre/` | the `aria-settle` Chainlink CRE workflow (TypeScript SDK) with its tests |
-| `indexer/` | Envio HyperIndex: campaigns, event lifecycle and a per-publisher trust score |
+| `indexer/` | Envio HyperIndex: campaigns, event lifecycle and a per-publisher trust score; serves the dashboard's totals, activity feed and trust score |
 | `ops/` | Privy relayer and policy scripts, and `sendFromRelayer()` |
 | `web/` | Nova (the reference AI app), Aria's API routes, the receipt page and the publisher dashboard |
 | `deployments/` | `10143.json`: the live contract address and deploy block |
@@ -147,7 +147,8 @@ graph LR
 ## Technology
 
 Monad testnet · Solidity 0.8.28 + Foundry · OpenZeppelin · Chainlink CRE (TypeScript SDK, `cre` CLI) · Privy
-(server wallets, policies, email login with embedded wallets) · Envio HyperIndex · KIMI (`kimi-k2.6`, Moonshot
+(server wallets, policies, email login with embedded wallets) · Envio HyperIndex (dashboard totals, activity feed,
+trust score) · KIMI (`kimi-k2.6`, Moonshot
 AI) · Next.js 14 + React 18 · viem · USDC.
 
 ## Run it
@@ -173,7 +174,8 @@ cre workflow simulate ./aria-settle -T staging-settings --non-interactive --trig
 The mock forwarder never reverts the outer transaction, so confirm settlement with the contract's
 `EventSettled` / `PaidOut` logs or with `verify`, not with the simulator's status line.
 
-Run the indexer (Envio HyperIndex, Docker; publisher trust scores on the dashboard and receipt page):
+Run the indexer (Envio HyperIndex, Docker; the dashboard's totals, full activity feed and trust score, and the
+trust score on the receipt page):
 
 ```bash
 pnpm --filter @aria-clearing/indexer sync-config   # address + start block from deployments/10143.json
@@ -182,8 +184,8 @@ pnpm --filter @aria-clearing/indexer start         # GraphQL on http://localhost
 ```
 
 If ports 8080/5433 are taken, set `HASURA_EXTERNAL_PORT`, `ENVIO_PG_PORT` and `HASURA_GRAPHQL_ENDPOINT` before
-starting, and point `ENVIO_GRAPHQL_URL` at the new port. The web app falls back to contract reads when the indexer
-is down.
+starting, and point `ENVIO_GRAPHQL_URL` at the new port. When the indexer is down the dashboard reads totals and
+activity from the last ~2 hours of contract logs instead and hides the trust score.
 
 Deploy your own copy: see `contracts/README.md` (deploy, Sourcify verification, seed) and
 `pnpm --filter @aria-clearing/ops privy:relayer` / `privy:policy` for the relayer.
