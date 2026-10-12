@@ -15,5 +15,5 @@ const withSerwist = withSerwistInit({
 });
 
 export default withSerwist({
-  transpilePackages: ["@aria-clearing/receipt"],
+  transpilePackages: ["@aria-clearing/receipt", "@aria-clearing/ops"],
 });
