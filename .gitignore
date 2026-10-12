@@ -1,0 +1,13 @@
+specs/
+
+.env
+.env.local
+.env.*.local
+
+node_modules/
+.next/
+out/
+cache/
+broadcast/
+*.log
+.DS_Store
