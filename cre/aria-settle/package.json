@@ -1,0 +1,20 @@
+{
+  "name": "aria-settle",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "postinstall": "bun x cre-setup",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@chainlink/cre-sdk": "1.23.0",
+    "viem": "2.54.2",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@types/bun": "1.2.21",
+    "typescript": "5.9.3"
+  }
+}
