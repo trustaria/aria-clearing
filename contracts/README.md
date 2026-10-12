@@ -5,6 +5,9 @@ A release transfers the USDC straight to the publisher (`PaidOut`); if that tran
 instead (`PayoutDeferred`) and the publisher pulls it with `claim()`.
 The interface is `src/IAriaClearing.sol`.
 
+> The libraries are git submodules: clone with `git clone --recurse-submodules`, or run
+> `git submodule update --init --recursive` before `forge build`.
+
 ## Test
 
 ```bash

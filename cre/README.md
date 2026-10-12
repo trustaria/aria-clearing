@@ -87,3 +87,20 @@ Running it again settles nothing new: settled ids leave `pendingEvents()`.
 
 The mock forwarder is permissionless and skips signature checks, so anyone can route a report through it on
 testnet; the production forwarder verifies DON signatures.
+
+## A real run on Monad testnet
+
+`simulate --broadcast` against the live contract `0xfb6bA8e6c48c806AFC40aFee5F85deE42Ce8F2fb`, settling a viewed
+impression and a click from Nova:
+
+```
+[USER LOG] aria-settle: 2 pending, 2 past the 20s window (now=1791834538, cap=15)
+[USER LOG] aria-settle: release 2, reject 0
+[USER LOG] aria-settle:   release 0xec81f4f7eb51813c1b4d397d699195e2fd6bba196d62144309f6c282f6c8cd6a
+[USER LOG] aria-settle:   release 0xa5cb4f5a0d334dacd69bbb44ef39d7821a7f5d2d3b2d0a13d594c233413d748b
+[USER LOG] aria-settle: writeReport txStatus=SUCCESS receiver=0 tx=0xc493509d379db218bb9eb54d109f5213d7e772559059b2c49199563e5d0981f2
+```
+
+The settlement tx emits `EventSettled` (released) and `PaidOut` for both events:
+[0xc493…81f2](https://testnet.monadvision.com/tx/0xc493509d379db218bb9eb54d109f5213d7e772559059b2c49199563e5d0981f2).
+Check it yourself: `pnpm --filter @aria-clearing/receipt verify req_bqJymQAubWx7q03A1zA2FD`.
