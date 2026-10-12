@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  campaignIdOf,
   claimsHash,
   eventIdOf,
   formatClaims,
@@ -68,6 +69,14 @@ describe("eventIdOf", () => {
   it("gives a click a different id from the impression of the same request", () => {
     expect(eventIdOf("req_abc123", Kind.Click)).toBe(
       "0x69edfc15efb6e739388682ec01a3a55eb59d47e8c08765dde2c2a02d68b63503",
+    );
+  });
+});
+
+describe("campaignIdOf", () => {
+  it("matches keccak256 of the campaign slug bytes", () => {
+    expect(campaignIdOf("lisbon-family-trips")).toBe(
+      "0xebe836eea8bdd51ca542ca8da86d4d6bb1072dd47e7a319e57660019c6ded33f",
     );
   });
 });

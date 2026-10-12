@@ -1,0 +1,62 @@
+[
+  {
+    "slug": "lisbon-family-trips",
+    "advertiser": "Tagus Family Travel",
+    "url": "https://example.com/tagus-family-travel",
+    "category": "travel",
+    "claims": [
+      "Family packages for Lisbon and the Algarve, 3 to 10 nights.",
+      "Children under 6 stay free in partner hotels.",
+      "Free cancellation up to 48 hours before arrival.",
+      "Every package includes airport transfers."
+    ],
+    "priceImpression": 10000,
+    "priceClick": 250000,
+    "budget": 4000000
+  },
+  {
+    "slug": "agency-project-planner",
+    "advertiser": "Brightline Projects",
+    "url": "https://example.com/brightline-projects",
+    "category": "software",
+    "claims": [
+      "Project planning built for agencies of 5 to 50 people.",
+      "Client portals with approvals and comments.",
+      "Time tracking linked to budgets per project.",
+      "Free for 14 days, no credit card required."
+    ],
+    "priceImpression": 10000,
+    "priceClick": 250000,
+    "budget": 4000000
+  },
+  {
+    "slug": "alpine-hiking-gear",
+    "advertiser": "Northridge Outfitters",
+    "url": "https://example.com/northridge-outfitters",
+    "category": "outdoor",
+    "claims": [
+      "Waterproof hiking boots in half sizes from 36 to 48.",
+      "Lightweight day packs from 18 to 35 litres.",
+      "Free returns within 60 days, including used gear.",
+      "Repairs offered for every pack they sell."
+    ],
+    "priceImpression": 10000,
+    "priceClick": 250000,
+    "budget": 4000000
+  },
+  {
+    "slug": "language-coach",
+    "advertiser": "Parla Coach",
+    "url": "https://example.com/parla-coach",
+    "category": "education",
+    "claims": [
+      "One-to-one video lessons in 12 languages.",
+      "Native-speaking tutors with a teaching certificate.",
+      "Lessons from 25 minutes, booked the same day.",
+      "First lesson refunded if you do not continue."
+    ],
+    "priceImpression": 10000,
+    "priceClick": 250000,
+    "budget": 4000000
+  }
+]

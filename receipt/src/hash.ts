@@ -30,3 +30,7 @@ export function requestKeyOf(requestId: string): Hex {
 export function eventIdOf(requestId: string, kind: Kind): Hex {
   return keccak256(encodeAbiParameters([{ type: "string" }, { type: "uint8" }], [requestId, kind]));
 }
+
+export function campaignIdOf(slug: string): Hex {
+  return keccak256(toBytes(slug));
+}
