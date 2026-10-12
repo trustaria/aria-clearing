@@ -9,7 +9,7 @@ import {IReceiver} from "./IReceiver.sol";
 
 /// @title Aria Clearing
 /// @notice Escrows advertiser USDC, logs each sponsored-line event with its receipt data,
-/// and settles events from CRE reports delivered by the forwarder.
+/// and settles events from CRE reports delivered by the forwarder, paying publishers directly.
 contract AriaClearing is IAriaClearing, IReceiver {
     using SafeERC20 for IERC20;
 
@@ -131,7 +131,8 @@ contract AriaClearing is IAriaClearing, IReceiver {
 
     // ---------- settlement ----------
 
-    /// @notice Forwarder only. Skips stale reports and ids it cannot settle; never reverts inside the loop.
+    /// @notice Forwarder only. Pays released events to their publishers and refunds rejected ones.
+    /// Skips stale reports and ids it cannot settle; never reverts inside the loop.
     function onReport(bytes calldata, bytes calldata report) external {
         if (msg.sender != forwarder) revert NotForwarder();
         (uint64 reportedAt, bytes32[] memory release, bytes32[] memory reject) =
@@ -206,17 +207,23 @@ contract AriaClearing is IAriaClearing, IReceiver {
         Campaign storage c = _campaigns[e.campaignId];
         c.reserved -= price;
 
-        Status outcome;
-        if (release && status == Status.Logged) {
-            credit[e.publisher] += price;
-            outcome = Status.Released;
-        } else {
-            c.available += price;
-            outcome = Status.Rejected;
-        }
+        Status outcome = release && status == Status.Logged ? Status.Released : Status.Rejected;
+        if (outcome == Status.Rejected) c.available += price;
         e.status = outcome;
         _removePending(eventId);
         emit EventSettled(eventId, outcome);
+
+        if (outcome == Status.Released) _payOut(eventId, e.publisher, price);
+    }
+
+    /// @dev Transfers to the publisher without reverting; a failed transfer becomes claimable credit.
+    function _payOut(bytes32 eventId, address publisher, uint256 amount) private {
+        if (IERC20(usdc).trySafeTransfer(publisher, amount)) {
+            emit PaidOut(eventId, publisher, amount);
+        } else {
+            credit[publisher] += amount;
+            emit PayoutDeferred(eventId, publisher, amount);
+        }
     }
 
     function _removePending(bytes32 eventId) private {

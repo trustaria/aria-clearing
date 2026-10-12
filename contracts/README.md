@@ -1,6 +1,8 @@
 # contracts
 
 `AriaClearing.sol`: USDC escrow, the onchain event log, disputes and CRE settlement (`onReport`).
+A release transfers the USDC straight to the publisher (`PaidOut`); if that transfer fails it is credited
+instead (`PayoutDeferred`) and the publisher pulls it with `claim()`.
 The interface is `src/IAriaClearing.sol`.
 
 ## Test
@@ -68,8 +70,8 @@ forge script script/Seed.s.sol:Seed --rpc-url $RPC --unlocked --sender $DEPLOYER
 |---|---|
 | `logEvent`, first event of a campaign (150-char rationale, 2 claim refs), full tx | 202,006 |
 | `logEvent`, later events, full tx | 167,806 |
-| `onReport`, 10 releases to 10 new publishers, execution | 499,046 |
-| `claim`, execution | 60,538 |
+| `onReport`, 10 releases paid to 10 new publishers, execution | 586,212 |
+| `claim` (after a deferred payout), execution | 63,314 |
 
 Measured on anvil. Monad charges the gas limit, not gas used, and prices cold storage differently,
 so set the relayer's limit from `cast estimate` against the deployed contract plus a margin.

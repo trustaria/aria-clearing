@@ -17,6 +17,8 @@ pragma solidity ^0.8.24;
 /// Ids that are unknown, already settled or still inside the dispute window are skipped, never reverted.
 /// A report whose `reportedAt` is not greater than the last accepted one is ignored.
 /// A disputed event is always refunded, whichever list it appears in.
+/// A released event pays the publisher directly (`PaidOut`); if that transfer fails, the amount
+/// is credited instead (`PayoutDeferred`) and the publisher pulls it with `claim()`.
 interface IAriaClearing {
     enum Kind {
         Impression,
@@ -77,6 +79,10 @@ interface IAriaClearing {
     /// @param outcome Status.Released or Status.Rejected
     event EventSettled(bytes32 indexed eventId, Status outcome);
 
+    event PaidOut(bytes32 indexed eventId, address indexed publisher, uint256 amount);
+
+    event PayoutDeferred(bytes32 indexed eventId, address indexed publisher, uint256 amount);
+
     event Claimed(address indexed publisher, uint256 amount);
 
     event Withdrawn(bytes32 indexed campaignId, uint256 amount);
@@ -113,7 +119,7 @@ interface IAriaClearing {
     /// @notice Campaign advertiser only, while the event is Logged and inside the dispute window.
     function dispute(bytes32 eventId) external;
 
-    /// @notice Transfers the caller's released credit.
+    /// @notice Transfers the caller's credit left by deferred payouts.
     function claim() external returns (uint256 amount);
 
     /// @notice Advertiser only. Returns the campaign's unreserved budget.

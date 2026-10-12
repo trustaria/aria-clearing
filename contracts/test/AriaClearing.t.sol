@@ -92,6 +92,23 @@ contract AriaClearingTest is Test {
         return clearing.clearingEvent(id).status;
     }
 
+    /// @dev Event ids of the EventSettled logs emitted by the clearing contract, in order.
+    function _settledIds(Vm.Log[] memory logs) internal view returns (bytes32[] memory ids) {
+        uint256 n;
+        for (uint256 i; i < logs.length; ++i) {
+            if (_isSettled(logs[i])) ++n;
+        }
+        ids = new bytes32[](n);
+        n = 0;
+        for (uint256 i; i < logs.length; ++i) {
+            if (_isSettled(logs[i])) ids[n++] = logs[i].topics[1];
+        }
+    }
+
+    function _isSettled(Vm.Log memory log) private view returns (bool) {
+        return log.emitter == address(clearing) && log.topics[0] == IAriaClearing.EventSettled.selector;
+    }
+
     // ---------- constructor and views ----------
 
     function test_constructor_setsRoles() public view {
@@ -309,20 +326,46 @@ contract AriaClearingTest is Test {
         clearing.onReport(metadata, abi.encode(uint64(1), _none(), _none()));
     }
 
-    function test_release_thenClaim() public {
+    function test_release_paysPublisherDirectly() public {
         bytes32 id = _logImpression(REQUEST);
         _afterWindow();
 
         vm.expectEmit(true, true, true, true, address(clearing));
         emit IAriaClearing.EventSettled(id, IAriaClearing.Status.Released);
+        vm.expectEmit(true, true, true, true, address(clearing));
+        emit IAriaClearing.PaidOut(id, publisher, PRICE_IMPRESSION);
         _report(uint64(vm.getBlockTimestamp()), _one(id), _none());
 
         assertEq(uint8(_status(id)), uint8(IAriaClearing.Status.Released));
-        assertEq(clearing.credit(publisher), PRICE_IMPRESSION);
+        assertEq(usdc.balanceOf(publisher), PRICE_IMPRESSION);
+        assertEq(usdc.balanceOf(address(clearing)), BUDGET - PRICE_IMPRESSION);
+        assertEq(clearing.credit(publisher), 0);
         assertEq(clearing.campaign(CAMPAIGN).reserved, 0);
         assertEq(clearing.campaign(CAMPAIGN).available, BUDGET - PRICE_IMPRESSION);
         assertEq(clearing.lastReportedAt(), vm.getBlockTimestamp());
 
+        vm.prank(publisher);
+        vm.expectRevert(IAriaClearing.NothingToClaim.selector);
+        clearing.claim();
+    }
+
+    function test_release_failedTransferDefersToCreditThenClaim() public {
+        bytes32 id = _logImpression(REQUEST);
+        _afterWindow();
+        usdc.setTransferFails(publisher, true);
+
+        vm.expectEmit(true, true, true, true, address(clearing));
+        emit IAriaClearing.EventSettled(id, IAriaClearing.Status.Released);
+        vm.expectEmit(true, true, true, true, address(clearing));
+        emit IAriaClearing.PayoutDeferred(id, publisher, PRICE_IMPRESSION);
+        _report(uint64(vm.getBlockTimestamp()), _one(id), _none());
+
+        assertEq(uint8(_status(id)), uint8(IAriaClearing.Status.Released));
+        assertEq(usdc.balanceOf(publisher), 0);
+        assertEq(usdc.balanceOf(address(clearing)), BUDGET);
+        assertEq(clearing.credit(publisher), PRICE_IMPRESSION);
+
+        usdc.setTransferFails(publisher, false);
         vm.expectEmit(true, true, true, true, address(clearing));
         emit IAriaClearing.Claimed(publisher, PRICE_IMPRESSION);
         vm.prank(publisher);
@@ -331,6 +374,42 @@ contract AriaClearingTest is Test {
         assertEq(amount, PRICE_IMPRESSION);
         assertEq(usdc.balanceOf(publisher), PRICE_IMPRESSION);
         assertEq(clearing.credit(publisher), 0);
+    }
+
+    function test_release_revertingTransferDefersToCredit() public {
+        vm.prank(relayer);
+        bytes32 id = clearing.logEvent(REQUEST, CAMPAIGN, address(0), IAriaClearing.Kind.Impression, RATIONALE, _refs());
+        _afterWindow();
+
+        vm.expectEmit(true, true, true, true, address(clearing));
+        emit IAriaClearing.PayoutDeferred(id, address(0), PRICE_IMPRESSION);
+        _report(uint64(vm.getBlockTimestamp()), _one(id), _none());
+
+        assertEq(uint8(_status(id)), uint8(IAriaClearing.Status.Released));
+        assertEq(clearing.credit(address(0)), PRICE_IMPRESSION);
+        assertEq(usdc.balanceOf(address(clearing)), BUDGET);
+    }
+
+    function test_release_failedPayoutDoesNotBlockOthers() public {
+        address other = makeAddr("other");
+        bytes32 failing = _logImpression("a");
+        vm.prank(relayer);
+        bytes32 paid = clearing.logEvent("b", CAMPAIGN, other, IAriaClearing.Kind.Impression, RATIONALE, _refs());
+        bytes32 rejected = _logImpression("c");
+        _afterWindow();
+        usdc.setTransferFails(publisher, true);
+
+        bytes32[] memory release = new bytes32[](2);
+        release[0] = failing;
+        release[1] = paid;
+        _report(uint64(vm.getBlockTimestamp()), release, _one(rejected));
+
+        assertEq(clearing.credit(publisher), PRICE_IMPRESSION);
+        assertEq(usdc.balanceOf(other), PRICE_IMPRESSION);
+        assertEq(clearing.credit(other), 0);
+        assertEq(uint8(_status(rejected)), uint8(IAriaClearing.Status.Rejected));
+        assertEq(clearing.campaign(CAMPAIGN).available, BUDGET - 2 * PRICE_IMPRESSION);
+        assertEq(clearing.campaign(CAMPAIGN).reserved, 0);
     }
 
     function test_reject_refundsCampaign() public {
@@ -365,6 +444,7 @@ contract AriaClearingTest is Test {
         assertEq(uint8(_status(inRelease)), uint8(IAriaClearing.Status.Rejected));
         assertEq(uint8(_status(inReject)), uint8(IAriaClearing.Status.Rejected));
         assertEq(clearing.credit(publisher), 0);
+        assertEq(usdc.balanceOf(publisher), 0);
         assertEq(clearing.campaign(CAMPAIGN).available, BUDGET);
         assertEq(clearing.campaign(CAMPAIGN).reserved, 0);
     }
@@ -382,7 +462,7 @@ contract AriaClearingTest is Test {
         vm.warp(START + WINDOW);
         _report(uint64(vm.getBlockTimestamp()), _one(id), _none());
         assertEq(uint8(_status(id)), uint8(IAriaClearing.Status.Released));
-        assertEq(clearing.credit(publisher), PRICE_IMPRESSION);
+        assertEq(usdc.balanceOf(publisher), PRICE_IMPRESSION);
     }
 
     function test_unknownAndSettledIds_areSkipped() public {
@@ -402,13 +482,14 @@ contract AriaClearingTest is Test {
         vm.recordLogs();
         _report(uint64(vm.getBlockTimestamp()), release, reject);
 
-        Vm.Log[] memory logs = vm.getRecordedLogs();
-        assertEq(logs.length, 1);
-        assertEq(logs[0].topics[1], fresh);
+        bytes32[] memory settledIds = _settledIds(vm.getRecordedLogs());
+        assertEq(settledIds.length, 1);
+        assertEq(settledIds[0], fresh);
         assertEq(uint8(_status(settled)), uint8(IAriaClearing.Status.Released));
         assertEq(uint8(_status(fresh)), uint8(IAriaClearing.Status.Released));
         assertEq(uint8(_status(keccak256("unknown"))), uint8(IAriaClearing.Status.None));
-        assertEq(clearing.credit(publisher), 2 * PRICE_IMPRESSION);
+        assertEq(usdc.balanceOf(publisher), 2 * PRICE_IMPRESSION);
+        assertEq(clearing.credit(publisher), 0);
         assertEq(clearing.campaign(CAMPAIGN).reserved, 0);
     }
 
@@ -417,9 +498,9 @@ contract AriaClearingTest is Test {
         _afterWindow();
         vm.recordLogs();
         _report(uint64(vm.getBlockTimestamp()), _one(id), _one(id));
-        assertEq(vm.getRecordedLogs().length, 1);
+        assertEq(_settledIds(vm.getRecordedLogs()).length, 1);
         assertEq(uint8(_status(id)), uint8(IAriaClearing.Status.Released));
-        assertEq(clearing.credit(publisher), PRICE_IMPRESSION);
+        assertEq(usdc.balanceOf(publisher), PRICE_IMPRESSION);
         assertEq(clearing.campaign(CAMPAIGN).available, BUDGET - PRICE_IMPRESSION);
     }
 
@@ -431,13 +512,13 @@ contract AriaClearingTest is Test {
         _report(at, _one(a), _one(b));
 
         IAriaClearing.Campaign memory before = clearing.campaign(CAMPAIGN);
-        uint256 creditBefore = clearing.credit(publisher);
+        uint256 balanceBefore = usdc.balanceOf(publisher);
 
         vm.recordLogs();
         _report(at, _one(a), _one(b));
 
         assertEq(vm.getRecordedLogs().length, 0);
-        assertEq(clearing.credit(publisher), creditBefore);
+        assertEq(usdc.balanceOf(publisher), balanceBefore);
         assertEq(clearing.campaign(CAMPAIGN).available, before.available);
         assertEq(clearing.campaign(CAMPAIGN).reserved, before.reserved);
         assertEq(clearing.lastReportedAt(), at);
@@ -572,12 +653,17 @@ contract AriaClearingTest is Test {
         console.log("onReport gas (10 releases, 10 new publishers)", g - gasleft());
         (bytes32[] memory ids,) = clearing.pendingEvents();
         assertEq(ids.length, 0);
+        for (uint256 i; i < 10; ++i) {
+            assertEq(usdc.balanceOf(address(uint160(0x1000 + i))), PRICE_IMPRESSION);
+        }
     }
 
     function testGas_claim() public {
         bytes32 id = _logImpression(REQUEST);
         _afterWindow();
+        usdc.setTransferFails(publisher, true);
         _report(uint64(vm.getBlockTimestamp()), _one(id), _none());
+        usdc.setTransferFails(publisher, false);
         vm.prank(publisher);
         uint256 g = gasleft();
         clearing.claim();
