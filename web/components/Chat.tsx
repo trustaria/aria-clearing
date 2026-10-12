@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { ChatFrame, ChatMessage, ModelName } from "../lib/kimi";
 import type { CardData } from "../lib/receipt";
 import AdCard from "./AdCard";
+import DebugBar from "./DebugBar";
 
 type Turn = {
   role: "user" | "assistant";
@@ -92,6 +93,7 @@ export default function Chat({ initialModel }: { initialModel: ModelName | null 
 
   return (
     <div className="mx-auto flex min-h-screen max-w-2xl flex-col px-4">
+      <DebugBar />
       <header className="flex items-center justify-between py-5">
         <div className="flex items-center gap-3">
           <span className="text-lg font-semibold tracking-tight">Nova</span>
