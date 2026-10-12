@@ -22,7 +22,7 @@ issued (card rendered) → logged (impression / click) → verified · paid   or
 
 A receipt binds three things together:
 
-1. **The exact sentence the AI showed.** It is emitted in `EventLogged` with its hash.
+1. **The exact sentence the AI showed.** It is emitted in `EventLogged`; the contract hashes it itself.
 2. **The advertiser's approved claims.** They are emitted in `CampaignCreated` with their hash; the sentence cites
    them by number, and the receipt page highlights the cited ones.
 3. **The money.** The price is reserved from the advertiser's escrow when the event is logged and paid to the
@@ -35,6 +35,10 @@ The card also embeds the receipt in the page, so any extension, crawler or other
   {"chainId":10143,"contract":"0x…","requestId":"req_…","campaignId":"0x…","claimsHash":"0x…","rationaleHash":"0x…"}
 </script>
 ```
+
+The embedded `rationaleHash` is computed from the sentence the card renders, before anything is logged. Its
+"Why this ad?" link carries the same values, `/receipt/<requestId>?h=<rationaleHash>&c=<claimsHash>`, so the
+receipt page can say whether the sentence you saw is the one logged on Monad.
 
 ### Hash recipe
 
@@ -59,11 +63,24 @@ the event:
 ```bash
 pnpm install
 pnpm --filter @aria-clearing/receipt verify req_payout1791832698
+pnpm --filter @aria-clearing/receipt verify req_bqJymQAubWx7q03A1zA2FD \
+  --sentence "Family packages for Lisbon and the Algarve, 3 to 10 nights. Children under 6 stay free in partner hotels."
+# ✓ The sentence you saw is the one that was logged and paid for
 ```
 
-It recomputes the event id, the sentence hash and the claims hash, compares them with the contract's own state,
-and prints the lifecycle with transaction hashes. Exit code 0 = verified, 1 = mismatch, 2 = not found. The same
-check runs on the receipt page at `/receipt/<requestId>`.
+The check that matters is the one against what you saw. Pass either or both:
+
+- `--sentence "<text you saw>"`: hashed with the recipe above (trimmed, NFC) and compared with the logged
+  `rationaleHash`. Change one word and the first line becomes `✗ Mismatch: rationaleHash differs from what was logged`.
+- `--receipt '<data-aria-receipt JSON>'`: the card's `chainId`, `contract`, `campaignId`, `claimsHash` and
+  `rationaleHash` are each compared with what was logged; the first line names any field that differs.
+
+It then recomputes the event id, the sentence hash and the claims hash from the logs and compares them with the
+contract's own state. The contract computes those hashes itself when it logs, so this part only shows the logged
+record is internally consistent; it passes for any logged event. Last comes the lifecycle with transaction hashes.
+Exit code 0 = no mismatch, 1 = mismatch, 2 = not found or bad arguments. The receipt page at `/receipt/<requestId>`
+runs the same comparison with the `h` and `c` values from the card's link; opened without them, it says so and
+shows only what was logged.
 
 ## How settlement works
 
@@ -92,7 +109,8 @@ window the contract enforces.
 | Impressions met the viewability rule in the evidence | That the evidence endpoint tells the truth: it is Aria's |
 | Clicks went through Aria's redirect | Independent parties: every key is Aria's in this demo |
 | The relayer cannot pay anyone (contract roles + Privy policy) | Decentralised execution: the workflow runs in CRE simulation, and the Monad testnet mock forwarder is permissionless |
-| The sentence shown and the approved claims match their onchain hashes | That the sentence is a faithful reading of the claims: an LLM wrote it, citing claim numbers |
+| The sentence you pass (`--sentence`, `--receipt`, or the card's `?h=` link) equals the one logged for that request | Without that input, only that the logged record is internally consistent: the contract hashes what it logs |
+| | That the sentence is a faithful reading of the claims: an LLM wrote it, citing claim numbers |
 | The dispute window passed without a dispute | |
 
 Next steps toward production: a second, independent evidence source (advertiser conversion postbacks); per-epoch
