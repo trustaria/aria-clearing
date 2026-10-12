@@ -5,7 +5,6 @@ import {
   getAbiItem,
   getAddress,
   http,
-  parseAbiItem,
   type Address,
   type Hex,
   type PublicClient,
@@ -26,19 +25,12 @@ const UNSETTLED_BLOCKS = 10n;
 const STATUS_RELEASED = 3;
 const STATUS_REJECTED = 4;
 
-// PaidOut and PayoutDeferred are declared here until the receipt package ABI includes them.
-const paidOutEvent = parseAbiItem(
-  "event PaidOut(bytes32 indexed eventId, address indexed publisher, uint256 amount)",
-);
-const payoutDeferredEvent = parseAbiItem(
-  "event PayoutDeferred(bytes32 indexed eventId, address indexed publisher, uint256 amount)",
-);
 const clearingEvents = [
   getAbiItem({ abi: ariaClearingAbi, name: "EventLogged" }),
   getAbiItem({ abi: ariaClearingAbi, name: "EventDisputed" }),
   getAbiItem({ abi: ariaClearingAbi, name: "EventSettled" }),
-  paidOutEvent,
-  payoutDeferredEvent,
+  getAbiItem({ abi: ariaClearingAbi, name: "PaidOut" }),
+  getAbiItem({ abi: ariaClearingAbi, name: "PayoutDeferred" }),
 ] as const;
 
 interface Located {
