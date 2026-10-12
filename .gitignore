@@ -13,3 +13,6 @@ broadcast/
 .DS_Store
 
 .claude/
+
+# Local demo state (events, evidence, publisher)
+.data/
