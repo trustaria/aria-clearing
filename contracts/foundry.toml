@@ -9,3 +9,15 @@ via_ir = true
 optimizer = true
 optimizer_runs = 200
 evm_version = "cancun"
+remappings = [
+  "forge-std/=lib/forge-std/src/",
+  "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
+]
+# Sourcify verification on MonadVision
+cbor_metadata = true
+bytecode_hash = "none"
+use_literal_content = true
+fs_permissions = [
+  { access = "read", path = "./script" },
+  { access = "read-write", path = "../deployments" },
+]
