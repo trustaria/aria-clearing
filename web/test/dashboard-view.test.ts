@@ -98,6 +98,7 @@ function json(overrides: Partial<DashboardJson> = {}): DashboardJson {
         time: NOW - 7_200,
       },
     ],
+    source: "logs",
     fromBlock: "1000",
     toBlock: "2000",
     ...overrides,

@@ -12,13 +12,15 @@ import {
 import { monadTestnet } from "viem/chains";
 import { knownCampaigns } from "./campaigns";
 import { deployment } from "./deployment";
-import { getPublisherStats } from "./envio";
+import { getPublisherIndex, type IndexedEvent, type PublisherIndex } from "./envio";
 
 /**
- * Blocks scanned back from the head. Monad makes ~2.5 blocks a second, so 20k blocks is the last ~2 hours,
- * clipped at the deploy block; older activity is not shown.
+ * Blocks scanned back from the head when reading contract logs. Monad makes ~2.5 blocks a second, so 20k blocks
+ * is the last ~2 hours, clipped at the deploy block.
  */
 export const SCAN_BLOCKS = 20_000n;
+/** Newest feed rows sent to the dashboard; totals cover every event. */
+export const FEED_LIMIT = 50;
 const CONCURRENCY = 6;
 /** Chunks this close to the head are re-read on every scan instead of cached. */
 const UNSETTLED_BLOCKS = 10n;
@@ -74,6 +76,12 @@ export interface Activity {
   settledTx: Hex | null;
 }
 
+/** A feed row with its time in unix seconds; rows read from logs also carry their block. */
+export type FeedItem = Omit<Activity, "blockNumber"> & { time: number; blockNumber?: bigint };
+
+/** envio: the Envio HyperIndex indexer; logs: the contract's logs over the last SCAN_BLOCKS blocks. */
+export type DataSource = "envio" | "logs";
+
 export interface Totals {
   paid: bigint;
   deferred: bigint;
@@ -104,7 +112,10 @@ export interface DashboardJson {
   /** Native balance in wei, shown only in account details. */
   mon: string;
   totals: Stringified<Omit<Totals, "rejectedBy">> & { rejectedBy: Record<RejectReason, number> };
-  activity: (Stringified<Activity> & { time: number })[];
+  /** Newest first, at most FEED_LIMIT rows. */
+  activity: (Stringified<Omit<FeedItem, "blockNumber">> & { blockNumber?: string })[];
+  source: DataSource;
+  /** Blocks indexed (envio) or scanned (logs). */
   fromBlock: string;
   toBlock: string;
   /** Share of the publisher's events that were verified, in basis points; null when unknown. */
@@ -182,8 +193,44 @@ export function activityFrom(
     });
 }
 
+/**
+ * Feed rows from the indexer's events, in the order given. A release always emits PaidOut or PayoutDeferred in
+ * the same transaction, so a released event that is not paid was deferred to credit. Pure.
+ */
+export function activityFromIndexed(
+  events: IndexedEvent[],
+  advertisers: Record<string, string> = advertiserNames(),
+): FeedItem[] {
+  return events.map((event) => {
+    const kind: KindName = event.kind === "click" ? "Click" : "Impression";
+    let status: ActivityStatus;
+    if (event.status === "released") status = event.paid ? "paid" : "deferred";
+    else if (event.status === "logged") status = "pending";
+    else status = event.status;
+    const released = status === "paid" || status === "deferred";
+    return {
+      eventId: event.eventId,
+      requestId: event.requestId,
+      kind,
+      advertiser: advertisers[event.campaignId.toLowerCase()] ?? null,
+      price: event.price,
+      earned: released ? event.price : 0n,
+      status,
+      reason: status === "rejected" ? rejectReason(kind, event.wasDisputed) : null,
+      txHash: event.loggedTx,
+      settledTx: event.settledTx,
+      time: event.loggedAt,
+    };
+  });
+}
+
+/** Adds a time to each log-derived row, interpolated between two known blocks. Pure. */
+export function withTimes(activity: Activity[], times: [BlockTime, BlockTime]): FeedItem[] {
+  return activity.map((a) => ({ ...a, time: estimateTime(a.blockNumber, ...times) }));
+}
+
 /** Earnings, pending value, counts and rejection reasons over a publisher's activity. Pure. */
-export function totalsOf(activity: Activity[]): Totals {
+export function totalsOf(activity: Pick<Activity, "kind" | "status" | "reason" | "price" | "earned">[]): Totals {
   const totals: Totals = {
     paid: 0n,
     deferred: 0n,
@@ -241,9 +288,10 @@ export function toDashboardJson(input: {
   usdc: bigint;
   credit: bigint;
   mon: bigint;
-  activity: Activity[];
+  /** Every event, newest first. */
+  activity: FeedItem[];
   range: { fromBlock: bigint; toBlock: bigint };
-  times: [BlockTime, BlockTime];
+  source: DataSource;
   trustScoreBps?: number | null;
 }): DashboardJson {
   const totals = totalsOf(input.activity);
@@ -259,13 +307,13 @@ export function toDashboardJson(input: {
       deferred: totals.deferred.toString(),
       pending: totals.pending.toString(),
     },
-    activity: input.activity.map((a) => ({
+    activity: input.activity.slice(0, FEED_LIMIT).map(({ blockNumber, ...a }) => ({
       ...a,
       price: a.price.toString(),
       earned: a.earned.toString(),
-      blockNumber: a.blockNumber.toString(),
-      time: estimateTime(a.blockNumber, ...input.times),
+      ...(blockNumber === undefined ? {} : { blockNumber: blockNumber.toString() }),
     })),
+    source: input.source,
     fromBlock: input.range.fromBlock.toString(),
     toBlock: input.range.toBlock.toString(),
     trustScoreBps: input.trustScoreBps ?? null,
@@ -358,35 +406,57 @@ export async function getClearingLogs(
   return perChunk.flat().filter((log) => log.blockNumber >= range.fromBlock);
 }
 
-/** Balances, payout credit, totals and recent activity for one publisher, JSON-safe. */
-export async function loadDashboard(address: string, rpc: PublicClient = client()): Promise<DashboardJson> {
-  const publisher = getAddress(address);
-  const { clearing, usdc, deployBlock } = deployment();
+/** The publisher's events from the last SCAN_BLOCKS blocks of contract logs. */
+async function activityFromLogs(
+  rpc: PublicClient,
+  clearing: Address,
+  publisher: Address,
+  deployBlock: bigint,
+): Promise<{ activity: FeedItem[]; range: { fromBlock: bigint; toBlock: bigint } }> {
   // The head block gives its number and timestamp in one read, so a lagging RPC node cannot miss it.
   const last = await rpc.getBlock();
   const range = scanRange(last.number, SCAN_BLOCKS, deployBlock);
-
-  const [logs, usdcBalance, credit, mon, first, stats] = await Promise.all([
+  const [logs, first] = await Promise.all([
     getClearingLogs(clearing, range, rpc),
+    rpc.getBlock({ blockNumber: range.fromBlock }),
+  ]);
+  const activity = withTimes(activityFrom(logs, publisher), [
+    { block: range.fromBlock, time: Number(first.timestamp) },
+    { block: range.toBlock, time: Number(last.timestamp) },
+  ]);
+  return { activity, range };
+}
+
+/**
+ * Balances, payout credit, totals and activity for one publisher, JSON-safe. Totals and the feed come from the
+ * Envio indexer; when it is unreachable they are read from the last SCAN_BLOCKS blocks of contract logs.
+ */
+export async function loadDashboard(
+  address: string,
+  rpc: PublicClient = client(),
+  readIndex: (address: string) => Promise<PublisherIndex | null> = getPublisherIndex,
+): Promise<DashboardJson> {
+  const publisher = getAddress(address);
+  const { clearing, usdc, deployBlock } = deployment();
+
+  const [index, usdcBalance, credit, mon] = await Promise.all([
+    readIndex(publisher),
     rpc.readContract({ address: usdc, abi: erc20Abi, functionName: "balanceOf", args: [publisher] }),
     rpc.readContract({ address: clearing, abi: ariaClearingAbi, functionName: "credit", args: [publisher] }),
     rpc.getBalance({ address: publisher }),
-    rpc.getBlock({ blockNumber: range.fromBlock }),
-    getPublisherStats(publisher),
   ]);
+  const balances = { address: publisher, clearing, usdc: usdcBalance, credit, mon };
 
-  return toDashboardJson({
-    address: publisher,
-    clearing,
-    usdc: usdcBalance,
-    credit,
-    mon,
-    activity: activityFrom(logs, publisher),
-    range,
-    trustScoreBps: stats?.trustScoreBps ?? null,
-    times: [
-      { block: range.fromBlock, time: Number(first.timestamp) },
-      { block: range.toBlock, time: Number(last.timestamp) },
-    ],
-  });
+  if (index) {
+    return toDashboardJson({
+      ...balances,
+      activity: activityFromIndexed(index.events),
+      range: { fromBlock: BigInt(index.fromBlock), toBlock: BigInt(index.toBlock) },
+      source: "envio",
+      trustScoreBps: index.stats.trustScoreBps,
+    });
+  }
+
+  const { activity, range } = await activityFromLogs(rpc, clearing, publisher, deployBlock);
+  return toDashboardJson({ ...balances, activity, range, source: "logs", trustScoreBps: null });
 }
