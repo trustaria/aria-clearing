@@ -104,7 +104,7 @@ function Card({ card, primary }: { card: CardView; primary: boolean }) {
   return (
     <div className={`rounded-xl border px-5 py-4 ${primary ? "border-stone-300 bg-white" : "border-stone-200 bg-white/60"}`}>
       <p className="text-xs font-medium uppercase tracking-wider text-stone-500">{card.label}</p>
-      <p className={`mt-2 font-serif tabular-nums text-stone-900 ${primary ? "text-4xl" : "text-[1.75rem]"}`}>{card.value}</p>
+      <p className={`mt-2 font-semibold tracking-tight tabular-nums text-stone-900 ${primary ? "text-[2.25rem] leading-tight" : "text-[1.625rem] leading-tight"}`}>{card.value}</p>
       <p className="mt-1 text-xs leading-relaxed text-stone-500">{card.hint}</p>
     </div>
   );
@@ -138,7 +138,7 @@ function Payouts({ view, clearing, onRetried }: { view: DashboardView | null; cl
         </p>
         <div className="text-right">
           <p className="text-xs font-medium uppercase tracking-wider text-stone-500">Balance</p>
-          <p className="font-serif text-2xl tabular-nums text-stone-900">{view ? view.balance : "…"}</p>
+          <p className="text-2xl font-semibold tracking-tight tabular-nums text-stone-900">{view ? view.balance : "…"}</p>
         </div>
       </div>
       {view?.retryAmount && (
