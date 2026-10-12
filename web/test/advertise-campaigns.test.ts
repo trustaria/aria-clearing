@@ -317,6 +317,19 @@ describe("POST /api/advertise/campaigns", () => {
     expect(saved).toEqual([]);
   });
 
+  it("still answers with the launched campaign when the record write fails", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { handlers } = setup({
+      save: () => {
+        throw new Error("disk full");
+      },
+    });
+    const res = await handlers.POST(post(BODY));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ slug: "crema-works-k3x9", txHash: TX });
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("crema-works-k3x9"));
+  });
+
   it("launches once for a double submit and gives both the same answer", async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => (release = resolve));

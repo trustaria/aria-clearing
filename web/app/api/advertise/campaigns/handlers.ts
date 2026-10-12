@@ -216,8 +216,21 @@ export function createCampaignHandlers(deps: Deps) {
     for (let attempt = 0; attempt < LAUNCH_ATTEMPTS; attempt++) {
       const slug = freshSlug(input.brand);
       if (!slug) break;
+      let result: LaunchResult;
       try {
-        const result = await deps.launch({ slug, claims: input.claims, ...units });
+        result = await deps.launch({ slug, claims: input.claims, ...units });
+      } catch (err) {
+        if (err instanceof LaunchError && err.code === "campaign-exists") continue;
+        if (err instanceof LaunchError && err.code === "low-funds") {
+          return { status: 402, body: { error: lowFundsMessage(err.available ?? 0n) } };
+        }
+        if (!(err instanceof LaunchError)) {
+          console.error(`advertise launch failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        return { status: 502, body: { error: LAUNCH_FAILED } };
+      }
+      // The campaign exists onchain from here, so a failed write is logged and the launch still succeeds.
+      try {
         deps.save({
           slug,
           advertiser: input.brand,
@@ -236,17 +249,12 @@ export function createCampaignHandlers(deps: Deps) {
           createdAt: now(),
           status: "live",
         });
-        return { status: 200, body: { slug, txHash: result.txHash } };
       } catch (err) {
-        if (err instanceof LaunchError && err.code === "campaign-exists") continue;
-        if (err instanceof LaunchError && err.code === "low-funds") {
-          return { status: 402, body: { error: lowFundsMessage(err.available ?? 0n) } };
-        }
-        if (!(err instanceof LaunchError)) {
-          console.error(`advertise launch failed: ${err instanceof Error ? err.message : String(err)}`);
-        }
-        return { status: 502, body: { error: LAUNCH_FAILED } };
+        console.error(
+          `advertise save failed for ${slug} (tx ${result.txHash}, block ${result.blockNumber}): ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
+      return { status: 200, body: { slug, txHash: result.txHash } };
     }
     return { status: 409, body: { error: LAUNCH_FAILED } };
   }
