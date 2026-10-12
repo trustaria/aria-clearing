@@ -1,0 +1,9 @@
+{
+  "address": "0xeCED10b07169857eE91441BBDdeb9653bF7cC041",
+  "chainId": 10143,
+  "deployBlock": 70463246,
+  "disputeWindow": 20,
+  "forwarder": "0xB9F79d863261869B234c481D1f9A7af84AeAd192",
+  "relayer": "0x6aAD35A0256d5eF914B21dc583142F557c14C11f",
+  "usdc": "0x534b2f3A21130d7a60830c2Df862319e593943A3"
+}
