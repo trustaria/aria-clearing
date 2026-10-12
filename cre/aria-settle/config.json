@@ -1,8 +1,8 @@
 {
   "schedule": "*/30 * * * * *",
   "chainSelectorName": "monad-testnet",
-  "clearingAddress": "0xeCED10b07169857eE91441BBDdeb9653bF7cC041",
+  "clearingAddress": "0xfb6bA8e6c48c806AFC40aFee5F85deE42Ce8F2fb",
   "evidenceUrl": "http://localhost:3000/api/aria/evidence",
-  "gasLimit": "500000",
-  "maxIdsPerReport": 40
+  "gasLimit": "1500000",
+  "maxIdsPerReport": 15
 }
