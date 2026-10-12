@@ -222,6 +222,11 @@ under `next start`). Logging events and the dashboards need a Privy app (`NEXT_P
 `PRIVY_APP_SECRET`, an authorization key); real answers need `KIMI_API_KEY`; settlement needs `cre login` and a
 funded key; the indexer needs Docker and `ENVIO_API_TOKEN`.
 
+**KIMI.** Nova runs `kimi-k2.6` with thinking disabled, so replies start in about a second. Each chat turn is one
+streamed call: the answer, then a hidden final line with the campaign pick. A built-in limiter queues every KIMI
+call to fit low rate-limit accounts (defaults: 3 requests per minute, 1 at a time; raise `KIMI_RPM` and
+`KIMI_CONCURRENCY` on a higher tier).
+
 **Single-tenant demo server.** The web app holds the relayer's and the seed advertiser's credentials and exposes
 demo controls (forge, dispute, publisher registration) without access control. Run it on your own machine; do not
 host it publicly as is.
