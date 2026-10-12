@@ -102,7 +102,7 @@ const CATEGORY_WORDS: Record<Exclude<Category, "other">, string[]> = {
   outdoor: ["hiking", "outdoor", "camping", "trail", "climbing", "backpack", "boots"],
   education: ["course", "learn", "lesson", "tutor", "class", "school", "training"],
   "food and drink": ["coffee", "espresso", "tea", "food", "meal", "wine", "restaurant", "snack"],
-  home: ["kitchen", "home", "furniture", "appliance", "garden", "decor", "machine"],
+  home: ["kitchen", "home", "furniture", "appliance", "garden", "decor"],
   finance: ["bank", "loan", "invest", "payment", "insurance", "credit", "savings"],
   health: ["health", "fitness", "wellness", "medical", "nutrition", "sleep", "therapy"],
   retail: ["shop", "store", "clothing", "fashion", "shoes", "gift", "jewelry"],
