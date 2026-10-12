@@ -1,14 +1,9 @@
-import Link from "next/link";
+import Chat from "@/components/Chat";
+import { activeModel } from "@/lib/kimi";
+
+// Reads KIMI_API_KEY at request time so the stub badge reflects the running server.
+export const dynamic = "force-dynamic";
 
 export default function Page() {
-  return (
-    <main className="max-w-2xl mx-auto px-4 py-16">
-      <h1 className="text-2xl font-semibold">Nova</h1>
-      <p className="mt-4">
-        <Link href="/wallet" className="underline">
-          Wallet
-        </Link>
-      </p>
-    </main>
-  );
+  return <Chat initialModel={activeModel()} />;
 }
