@@ -187,7 +187,7 @@ export function PublisherPanel({
           <Stat label="In wallet" value={data ? formatUsdc(BigInt(data.usdc)) : "…"} unit="USDC" />
           <Stat label="Gas" value={data ? formatMon(mon) : "…"} unit="MON" />
         </div>
-        <ClaimButton clearing={clearing} wallet={wallet} disabled={!data || claimable === 0n || mon === 0n} onClaimed={refresh} />
+        <ClaimButton clearing={clearing} disabled={!data || claimable === 0n || mon === 0n} onClaimed={refresh} />
         {data && mon === 0n && (
           <p className="text-sm text-amber-800">
             Fund with testnet MON to claim: <span className="font-mono">{wallet}</span>

@@ -11,15 +11,13 @@ const publicClient = createPublicClient({ chain: monadTestnet, transport: http()
 
 type State = { phase: "idle" } | { phase: "sending" } | { phase: "confirming"; hash: Hex } | { phase: "done"; hash: Hex } | { phase: "error"; message: string; hash?: Hex };
 
-/** Sends claim() from the embedded wallet, waits for the receipt, then calls onClaimed. */
+/** Sends claim() from the user's embedded wallet, waits for the receipt, then calls onClaimed. */
 export default function ClaimButton({
   clearing,
-  wallet,
   disabled,
   onClaimed,
 }: {
   clearing: Address;
-  wallet: Address;
   disabled: boolean;
   onClaimed: () => void;
 }) {
@@ -31,14 +29,11 @@ export default function ClaimButton({
     setState({ phase: "sending" });
     let hash: Hex | undefined;
     try {
-      const sent = await sendTransaction(
-        {
-          to: clearing,
-          data: encodeFunctionData({ abi: ariaClearingAbi, functionName: "claim" }),
-          chainId: monadTestnet.id,
-        },
-        { address: wallet },
-      );
+      const sent = await sendTransaction({
+        to: clearing,
+        data: encodeFunctionData({ abi: ariaClearingAbi, functionName: "claim" }),
+        chainId: monadTestnet.id,
+      });
       hash = sent.hash;
       setState({ phase: "confirming", hash });
       const receipt = await publicClient.waitForTransactionReceipt({ hash });
