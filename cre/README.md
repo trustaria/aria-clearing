@@ -34,10 +34,10 @@ cre/
 |---|---|
 | `schedule` | cron with seconds; simulation fires once on demand |
 | `chainSelectorName` | `monad-testnet` (selector `2183018362218727504`) |
-| `clearingAddress` | AriaClearing address from `deployments/monad-testnet.json` |
+| `clearingAddress` | AriaClearing address from `deployments/10143.json` |
 | `evidenceUrl` | `http://localhost:3000/api/aria/evidence`; a `cloudflared` URL if localhost is unreachable |
-| `gasLimit` | `"500000"` (string) |
-| `maxIdsPerReport` | `40` |
+| `gasLimit` | `"1500000"` (string): payouts add USDC transfers; Monad bills the full limit (~0.15 MON per run) |
+| `maxIdsPerReport` | `15` |
 
 ## Evidence API contract
 

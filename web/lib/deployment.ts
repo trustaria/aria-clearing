@@ -6,9 +6,9 @@ export const DEFAULT_RPC_URL = "https://testnet-rpc.monad.xyz";
 
 /** Values from deployments/10143.json, used when the file is not next to the web app. */
 const FALLBACK = {
-  address: "0xeCED10b07169857eE91441BBDdeb9653bF7cC041",
+  address: "0xfb6bA8e6c48c806AFC40aFee5F85deE42Ce8F2fb",
   usdc: "0x534b2f3A21130d7a60830c2Df862319e593943A3",
-  deployBlock: 70463246,
+  deployBlock: 70478614,
 };
 
 export interface Deployment {
