@@ -69,6 +69,7 @@ const PICK_SYSTEM = [
 function turnSystem(campaigns: Campaign[]): string {
   return [
     ANSWER_SYSTEM,
+    "Write the answer from general knowledge only: never name, quote or draw on the campaigns below in it.",
     "",
     `After the answer, end your reply with one last line: ${PICK_SENTINEL} followed by one JSON object, keys in this order:`,
     PICK_KEYS,
@@ -76,6 +77,7 @@ function turnSystem(campaigns: Campaign[]): string {
     "as a careful ad network would, for the user's latest message. Never refer to it in the answer.",
     "",
     PICK_RULES,
+    `Keep the rationale short: at most ${MAX_RATIONALE - 50} characters, about 20 words, from 1 or 2 claims, never 3.`,
     "",
     "Campaigns:",
     "",
@@ -222,8 +224,10 @@ export async function* streamTurn(
     }
     const { text, payload } = splitter.end();
     if (text) yield { type: "text", delta: text };
+    const pick = parseTurnPick(payload, campaigns);
     if (payload === null) console.warn("pick line missing");
-    yield { type: "pick", pick: parseTurnPick(payload, campaigns) };
+    else if (!pick && !/"slug"\s*:\s*null/.test(payload)) console.warn(`pick rejected: ${payload.trim().slice(0, 400)}`);
+    yield { type: "pick", pick };
   } finally {
     release();
   }
