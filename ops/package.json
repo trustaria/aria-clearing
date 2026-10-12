@@ -9,11 +9,13 @@
     "typecheck": "tsc --noEmit",
     "privy:relayer": "tsx scripts/relayer.ts",
     "privy:policy": "tsx scripts/policy.ts",
-    "privy:probe": "tsx scripts/probe.ts"
+    "privy:probe": "tsx scripts/probe.ts",
+    "log-event": "tsx scripts/log-event.ts"
   },
   "dependencies": {
     "@aria-clearing/receipt": "workspace:*",
-    "@privy-io/node": "0.35.0"
+    "@privy-io/node": "0.35.0",
+    "viem": "2.31.2"
   },
   "devDependencies": {
     "@types/node": "22.9.0",
