@@ -15,6 +15,7 @@ import { claimsHash, eventIdOf, normalizeRationale, requestKeyOf, Kind } from ".
 export const MAX_LOG_RANGE = 100n;
 const DEFAULT_CONCURRENCY = 8;
 const DEFAULT_CAMPAIGN_SCAN_CHUNKS = 50;
+const DEFAULT_CAMPAIGN_BACK_SCAN_CHUNKS = 200;
 const DEFAULT_SETTLEMENT_SCAN_CHUNKS = 30;
 /** Chunks searched on each side of the block found for an event's timestamp. */
 const LOGGED_WINDOW_CHUNKS = 2n;
@@ -284,6 +285,31 @@ export async function findBlockAtTimestamp(
   return low;
 }
 
+/**
+ * Walks [floor, start] from `start` downward in chunks of at most `size` blocks, at most
+ * `maxChunks` of them, `batch` chunks at a time. Returns the results of the first
+ * batch (nearest chunk first) that has any, or [] when none does.
+ */
+export async function scanBackward<T>(
+  start: bigint,
+  floor: bigint,
+  size: bigint,
+  maxChunks: number,
+  batch: number,
+  getChunk: (range: { fromBlock: bigint; toBlock: bigint }) => Promise<T[]>,
+): Promise<T[]> {
+  const chunks: { fromBlock: bigint; toBlock: bigint }[] = [];
+  for (let to = start; to >= floor && chunks.length < maxChunks; to -= size) {
+    const from = to - size + 1n;
+    chunks.push({ fromBlock: from > floor ? from : floor, toBlock: to });
+  }
+  for (let i = 0; i < chunks.length; i += batch) {
+    const found = (await mapLimit(chunks.slice(i, i + batch), batch, getChunk)).flat();
+    if (found.length > 0) return found;
+  }
+  return [];
+}
+
 /** Runs `fn` over `items` with at most `limit` calls in flight, keeping result order. */
 async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const results = new Array<R>(items.length);
@@ -311,8 +337,12 @@ export interface VerifyOptions {
   /** Blocks per eth_getLogs call; defaults to the Monad public RPC limit. */
   maxRange?: bigint;
   concurrency?: number;
-  /** Chunks scanned forward from fromBlock for CampaignCreated. */
+  /** Chunks scanned forward from fromBlock (or campaignFromBlock) for CampaignCreated. */
   campaignScanChunks?: number;
+  /** Chunks scanned backward from the logged block for CampaignCreated, never below fromBlock. */
+  campaignBackScanChunks?: number;
+  /** Block where the forward CampaignCreated scan starts; when set, the backward scan is skipped. */
+  campaignFromBlock?: bigint;
   /** Chunks scanned forward from the logged block for EventDisputed and EventSettled. */
   settlementScanChunks?: number;
   /** Replaces the client built from rpcUrl (tests, shared clients). */
@@ -419,7 +449,7 @@ export async function verifyReceipt(requestId: string, options: VerifyOptions): 
   const missing = knownIds.filter((id) => !seen.has(id));
   if (missing.length > 0) throw new Error(`EventLogged not found near its logging block for ${missing.join(", ")}`);
 
-  // 3. Campaign: claims hash from the view, claims text from a bounded forward scan.
+  // 3. Campaign: claims hash from the view, claims text from a bounded backward then forward scan.
   const campaignId = events[0].campaignId;
   const firstLogged = events.reduce((min, e) => (e.blockNumber < min ? e.blockNumber : min), events[0].blockNumber);
   const campaignView = await client.readContract({
@@ -429,12 +459,24 @@ export async function verifyReceipt(requestId: string, options: VerifyOptions): 
     args: [campaignId],
   });
 
-  const campaignScan =
-    options.fromBlock === undefined
-      ? Promise.resolve([])
-      : scan(floor, firstLogged, options.campaignScanChunks ?? DEFAULT_CAMPAIGN_SCAN_CHUNKS, (range) =>
-          client.getLogs({ address, event: campaignCreatedEvent, args: { campaignId }, ...range }),
-        );
+  const getCampaignLogs = (range: { fromBlock: bigint; toBlock: bigint }) =>
+    client.getLogs({ address, event: campaignCreatedEvent, args: { campaignId }, ...range });
+  const forwardCampaignScan = (from: bigint) =>
+    scan(from, firstLogged, options.campaignScanChunks ?? DEFAULT_CAMPAIGN_SCAN_CHUNKS, getCampaignLogs);
+  const findCampaignLogs = async () => {
+    if (options.campaignFromBlock !== undefined) return forwardCampaignScan(options.campaignFromBlock);
+    if (options.fromBlock === undefined) return [];
+    const back = await scanBackward(
+      firstLogged,
+      floor,
+      maxRange,
+      options.campaignBackScanChunks ?? DEFAULT_CAMPAIGN_BACK_SCAN_CHUNKS,
+      concurrency,
+      getCampaignLogs,
+    );
+    return back.length > 0 ? back : forwardCampaignScan(floor);
+  };
+  const campaignScan = findCampaignLogs();
 
   // 4. Dispute and settlement transactions from a bounded forward scan.
   const settlementChunks = options.settlementScanChunks ?? DEFAULT_SETTLEMENT_SCAN_CHUNKS;

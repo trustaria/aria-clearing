@@ -5,6 +5,7 @@ import {
   buildReceipt,
   chunkRange,
   findBlockAtTimestamp,
+  scanBackward,
   type CampaignCreatedData,
   type EventLoggedData,
   type EventView,
@@ -292,5 +293,47 @@ describe("findBlockAtTimestamp", () => {
 
   it("returns the upper bound when the target is later than every block", async () => {
     expect(await findBlockAtTimestamp(timestampOf, 0n, 100n, 9_999n)).toBe(100n);
+  });
+});
+
+describe("scanBackward", () => {
+  const fetcher = (hitBlock: bigint | null) => {
+    const calls: { fromBlock: bigint; toBlock: bigint }[] = [];
+    const getChunk = async (r: { fromBlock: bigint; toBlock: bigint }) => {
+      calls.push(r);
+      return hitBlock !== null && hitBlock >= r.fromBlock && hitBlock <= r.toBlock ? [hitBlock] : [];
+    };
+    return { calls, getChunk };
+  };
+
+  it("finds a hit in the starting chunk", async () => {
+    const { getChunk } = fetcher(995n);
+    expect(await scanBackward(1000n, 0n, 100n, 200, 4, getChunk)).toEqual([995n]);
+  });
+
+  it("finds a hit many chunks back and stops after the batch that holds it", async () => {
+    const { calls, getChunk } = fetcher(250n);
+    expect(await scanBackward(10_000n, 0n, 100n, 200, 4, getChunk)).toEqual([250n]);
+    expect(calls.length).toBeLessThanOrEqual(100 + 4);
+  });
+
+  it("respects the chunk bound", async () => {
+    const { calls, getChunk } = fetcher(0n);
+    expect(await scanBackward(10_000n, 0n, 100n, 5, 2, getChunk)).toEqual([]);
+    expect(calls).toHaveLength(5);
+    expect(calls.every((c) => c.fromBlock >= 9_501n)).toBe(true);
+  });
+
+  it("never goes below the floor and clips the last chunk", async () => {
+    const { calls, getChunk } = fetcher(null);
+    expect(await scanBackward(250n, 120n, 100n, 200, 4, getChunk)).toEqual([]);
+    expect(Math.min(...calls.map((c) => Number(c.fromBlock)))).toBe(120);
+    expect(calls.every((c) => c.toBlock - c.fromBlock < 100n)).toBe(true);
+  });
+
+  it("returns nothing when the start is below the floor", async () => {
+    const { calls, getChunk } = fetcher(null);
+    expect(await scanBackward(10n, 20n, 100n, 200, 4, getChunk)).toEqual([]);
+    expect(calls).toHaveLength(0);
   });
 });
