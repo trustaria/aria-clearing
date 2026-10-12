@@ -119,8 +119,8 @@ interface IAriaClearing {
     /// @notice Advertiser only. Returns the campaign's unreserved budget.
     function withdraw(bytes32 campaignId) external returns (uint256 amount);
 
-    /// @notice Event ids still Logged or Disputed.
-    function pendingIds() external view returns (bytes32[] memory);
+    /// @notice Events still Logged or Disputed, with their state, in one read.
+    function pendingEvents() external view returns (bytes32[] memory ids, ClearingEvent[] memory events);
 
     function campaign(bytes32 campaignId) external view returns (Campaign memory);
 
