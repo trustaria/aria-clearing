@@ -140,8 +140,10 @@ Merkle roots instead of one transaction per event; a deployed DON with the produ
 ## Advertisers
 
 `/advertise` is a minimal campaign console modelled on Google Ads, for brands that know nothing about crypto:
-sign in with email, describe the product, approve the claims KIMI drafts from it (the exact text that goes
-onchain), pick a budget and CPC/CPM bids, and launch. The campaign page shows spend, remaining budget,
+sign in with email, paste your website (**Read my website**: the server fetches the page, https only and never
+private addresses, and KIMI drafts the brand, a description, 3–5 factual claims, a category and topics), approve
+the claims (the exact text that goes onchain), pick a budget and CPC/CPM bids, and launch. Describing the product
+by hand works too. The campaign page shows spend, remaining budget,
 impressions, clicks, CTR, every sponsored sentence with its receipt, Dispute and End campaign.
 
 Funding is honest test funding: "This is a test network. No card is charged." Aria's treasury server wallet is the
