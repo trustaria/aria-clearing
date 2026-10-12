@@ -6,7 +6,7 @@
   "scripts": {
     "postinstall": "bun x cre-setup",
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit -p tsconfig.test.json"
   },
   "dependencies": {
     "@chainlink/cre-sdk": "1.23.0",
