@@ -328,8 +328,11 @@ function toClearingLog(log: RawLog): ClearingLog {
   }
 }
 
-/** Decoded logs of full 100-block chunks, keyed by contract and chunk start; chunks near the head are not kept. */
-const chunkCache = new Map<string, ClearingLog[]>();
+/**
+ * Reads of 100-block chunks keyed by contract and chunk range. Concurrent scans share a pending read;
+ * only full chunks behind the head stay cached, and failed reads are dropped.
+ */
+const chunkCache = new Map<string, Promise<ClearingLog[]>>();
 
 /**
  * Every clearing log in [fromBlock, toBlock], one getLogs per 100-block chunk (the public RPC limit).
@@ -341,14 +344,19 @@ export async function getClearingLogs(
   rpc: PublicClient = client(),
 ): Promise<ClearingLog[]> {
   const chunks = alignedChunks(range.fromBlock, range.toBlock, MAX_LOG_RANGE);
-  const perChunk = await mapLimit(chunks, CONCURRENCY, async (chunk) => {
-    const key = `${clearing}:${chunk.fromBlock}`;
+  const perChunk = await mapLimit(chunks, CONCURRENCY, (chunk) => {
+    const key = `${clearing}:${chunk.fromBlock}-${chunk.toBlock}`;
     const cached = chunkCache.get(key);
     if (cached) return cached;
-    const logs = (await readChunk(rpc, clearing, chunk)).map(toClearingLog);
     const complete = chunk.toBlock - chunk.fromBlock + 1n === MAX_LOG_RANGE;
-    if (complete && chunk.toBlock + UNSETTLED_BLOCKS < range.toBlock) chunkCache.set(key, logs);
-    return logs;
+    const keep = complete && chunk.toBlock + UNSETTLED_BLOCKS < range.toBlock;
+    const read = readChunk(rpc, clearing, chunk).then((logs) => logs.map(toClearingLog));
+    chunkCache.set(key, read);
+    read.then(
+      () => keep || chunkCache.delete(key),
+      () => chunkCache.delete(key),
+    );
+    return read;
   });
   return perChunk.flat().filter((log) => log.blockNumber >= range.fromBlock);
 }
@@ -357,16 +365,16 @@ export async function getClearingLogs(
 export async function loadDashboard(address: string, rpc: PublicClient = client()): Promise<DashboardJson> {
   const publisher = getAddress(address);
   const { clearing, usdc, deployBlock } = deployment();
-  const head = await rpc.getBlockNumber();
-  const range = scanRange(head, SCAN_BLOCKS, deployBlock);
+  // The head block gives its number and timestamp in one read, so a lagging RPC node cannot miss it.
+  const last = await rpc.getBlock();
+  const range = scanRange(last.number, SCAN_BLOCKS, deployBlock);
 
-  const [logs, usdcBalance, credit, mon, first, last] = await Promise.all([
+  const [logs, usdcBalance, credit, mon, first] = await Promise.all([
     getClearingLogs(clearing, range, rpc),
     rpc.readContract({ address: usdc, abi: erc20Abi, functionName: "balanceOf", args: [publisher] }),
     rpc.readContract({ address: clearing, abi: ariaClearingAbi, functionName: "credit", args: [publisher] }),
     rpc.getBalance({ address: publisher }),
     rpc.getBlock({ blockNumber: range.fromBlock }),
-    rpc.getBlock({ blockNumber: range.toBlock }),
   ]);
 
   return toDashboardJson({
