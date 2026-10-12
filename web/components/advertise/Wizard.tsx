@@ -286,28 +286,41 @@ function ClaimRow({
   const error = length === 0 ? null : length > CLAIM_MAX || touched ? claimError(value) : null;
   const id = `claim-${index}`;
   const counter = length > CLAIM_MAX - 20 ? "visible" : "invisible group-focus-within:visible";
+  const box = useRef<HTMLTextAreaElement>(null);
+  // Grows the box with its text so the whole claim stays readable.
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [value]);
   return (
     <div className="group space-y-1">
-      <div className="flex items-center gap-3">
-        <label htmlFor={id} className="w-4 shrink-0 text-sm tabular-nums text-stone-500">
+      <div className="flex items-start gap-3">
+        <label htmlFor={id} className="mt-3 w-4 shrink-0 text-sm tabular-nums text-stone-500">
           {index + 1}
         </label>
-        <input
+        <textarea
+          ref={box}
           id={id}
+          rows={2}
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => onChange(e.target.value.replace(/\n/g, " "))}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.preventDefault();
+          }}
           onBlur={() => setTouched(true)}
           aria-invalid={Boolean(error)}
           aria-describedby={error ? `${id}-error` : undefined}
           placeholder="A short fact about your product"
-          className={`${INPUT} ${inputBorder(Boolean(error))}`}
+          className={`${INPUT} ${inputBorder(Boolean(error))} min-h-[3.25rem] resize-none overflow-hidden leading-relaxed`}
         />
         <button
           type="button"
           onClick={onRemove}
           disabled={!canRemove}
           aria-label={`Remove claim ${index + 1}`}
-          className="shrink-0 rounded-md px-2 py-1 text-stone-400 transition hover:text-stone-900 disabled:invisible"
+          className="mt-2 shrink-0 rounded-md px-2 py-1 text-stone-400 transition hover:text-stone-900 disabled:invisible"
         >
           ✕
         </button>
