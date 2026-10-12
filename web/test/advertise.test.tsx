@@ -166,6 +166,23 @@ describe("advertise client", () => {
     expect((init.headers as Record<string, string>).authorization).toBe("Bearer tok");
   });
 
+  it("sends the signed-in email with the launch", async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ slug: "crema-works-a1b2", txHash: "0x1" }), { status: 200 }));
+    const client = createHttpClient(async () => "tok", fetchImpl as unknown as typeof fetch);
+    await client.launch({
+      ...product,
+      claims,
+      category: "food and drink",
+      keywords: [],
+      budgetCents: 500,
+      cpcCents: 25,
+      cpmCents: 1000,
+      email: "ana@crema.works",
+    });
+    const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toMatchObject({ email: "ana@crema.works" });
+  });
+
   it("falls back to manual claims when drafting fails", async () => {
     const fetchImpl = vi.fn(async () => new Response("{}", { status: 502 }));
     const client = createHttpClient(async () => "tok", fetchImpl as unknown as typeof fetch);

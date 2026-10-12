@@ -26,7 +26,11 @@ export default function NewCampaignPage() {
                 ← Campaigns
               </Link>
             </ConsoleHeader>
-            <Wizard client={client} onLaunched={(slug) => router.push(`/advertise/c/${slug}?new=1`)} />
+            <Wizard
+              client={client}
+              email={user?.email?.address}
+              onLaunched={(slug) => router.push(`/advertise/c/${slug}?new=1`)}
+            />
           </div>
         )}
       </div>

@@ -713,11 +713,14 @@ export default function Wizard({
   client,
   initialStep = 1,
   initialState,
+  email,
   onLaunched,
 }: {
   client: AdvertiseClient;
   initialStep?: Step;
   initialState?: Partial<WizardState>;
+  /** The signed-in user's email, saved with the campaign for display. */
+  email?: string;
   onLaunched: (slug: string) => void;
 }) {
   const [step, setStep] = useState<Step>(initialStep);
@@ -804,6 +807,7 @@ export default function Wizard({
         budgetCents: budgetCents(state) ?? 0,
         cpcCents: parseDollars(state.cpc) ?? 0,
         cpmCents: parseDollars(state.cpm) ?? 0,
+        email: email ?? "",
       })
       .catch(() => ({ error: "" }));
     timers.forEach(clearTimeout);

@@ -23,6 +23,8 @@ export type LaunchInput = DraftInput & {
   budgetCents: number;
   cpcCents: number;
   cpmCents: number;
+  /** The signed-in user's email, display only. */
+  email?: string;
 };
 export type LaunchResult = { slug: string; txHash: string } | { error: string };
 
