@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { POST as draftPOST } from "../app/api/advertise/draft/route";
-import { requireAdvertiser, UNAUTHORIZED_MESSAGE } from "../lib/advertiser-auth";
+import { verifyAdvertiser, UNAUTHORIZED_MESSAGE } from "../lib/advertiser-auth";
 
 const verifyAccessToken = vi.fn();
 
@@ -22,16 +22,16 @@ beforeEach(() => {
   });
 });
 
-describe("requireAdvertiser", () => {
+describe("verifyAdvertiser", () => {
   it("returns the Privy user id for a valid bearer token", async () => {
-    expect(await requireAdvertiser(request("Bearer good-token"))).toEqual({ userId: "did:privy:alice" });
+    expect(await verifyAdvertiser(request("Bearer good-token"))).toEqual({ userId: "did:privy:alice" });
     expect(verifyAccessToken).toHaveBeenCalledWith("good-token");
   });
 
   it.each([[undefined], ["good-token"], ["Basic good-token"], ["Bearer "]])(
     "answers 401 without a bearer token (%s)",
     async (header) => {
-      const res = await requireAdvertiser(request(header));
+      const res = await verifyAdvertiser(request(header));
       expect(res).toBeInstanceOf(Response);
       expect((res as Response).status).toBe(401);
       expect(await (res as Response).json()).toEqual({ error: UNAUTHORIZED_MESSAGE });
@@ -40,7 +40,7 @@ describe("requireAdvertiser", () => {
   );
 
   it("answers 401 when Privy rejects the token", async () => {
-    const res = await requireAdvertiser(request("Bearer forged"));
+    const res = await verifyAdvertiser(request("Bearer forged"));
     expect((res as Response).status).toBe(401);
   });
 });

@@ -20,7 +20,7 @@ function bearerToken(req: Request): string | null {
 }
 
 /** The signed-in advertiser from `Authorization: Bearer <token>`, or a 401 response. */
-export async function requireAdvertiser(
+export async function verifyAdvertiser(
   req: Request,
   verify: TokenVerifier = verifyPrivyToken,
 ): Promise<Advertiser | Response> {

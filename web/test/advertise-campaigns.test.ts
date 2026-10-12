@@ -20,7 +20,7 @@ import {
   validateLaunch,
   type Deps,
 } from "../app/api/advertise/campaigns/handlers";
-import { requireAdvertiser } from "../lib/advertiser-auth";
+import { verifyAdvertiser } from "../lib/advertiser-auth";
 import type { StoredCampaign } from "../lib/campaign-store";
 import { APPROVE_GAS, LAUNCH_GAS, LaunchError, launchCampaign, type TreasuryDeps } from "../lib/treasury";
 
@@ -58,7 +58,7 @@ const NORMALISED_CLAIMS = [
 
 // Valid tokens are "token-<userId>".
 const auth = (req: Request) =>
-  requireAdvertiser(req, async (token) => {
+  verifyAdvertiser(req, async (token) => {
     if (!token.startsWith("token-")) throw new Error("invalid");
     return { userId: token.slice("token-".length) };
   });

@@ -1,4 +1,4 @@
-import { requireAdvertiser } from "@/lib/advertiser-auth";
+import { verifyAdvertiser } from "@/lib/advertiser-auth";
 import { draftClaims, type DraftInput } from "@/lib/claims-draft";
 
 export const runtime = "nodejs";
@@ -30,7 +30,7 @@ function validate(body: unknown): { errors: DraftErrors; value?: DraftInput } {
 
 /** Drafts claims for the signed-in advertiser: the draft, or `{manual: true}`. */
 export async function POST(req: Request) {
-  const advertiser = await requireAdvertiser(req);
+  const advertiser = await verifyAdvertiser(req);
   if (advertiser instanceof Response) return advertiser;
   const { errors, value } = validate(await req.json().catch(() => null));
   if (!value) return Response.json({ errors }, { status: 400 });

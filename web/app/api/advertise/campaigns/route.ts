@@ -1,6 +1,6 @@
 import { ariaClearingAbi } from "@aria-clearing/receipt";
 import type { Hex } from "viem";
-import { requireAdvertiser } from "@/lib/advertiser-auth";
+import { verifyAdvertiser } from "@/lib/advertiser-auth";
 import { listCampaignsByOwner, saveCampaign } from "@/lib/campaign-store";
 import { campaignBySlug } from "@/lib/campaigns";
 import { publicClient } from "@/lib/chain";
@@ -22,7 +22,7 @@ async function campaignState(campaignId: Hex) {
 }
 
 const handlers = createCampaignHandlers({
-  auth: (req) => requireAdvertiser(req),
+  auth: (req) => verifyAdvertiser(req),
   balance: () => treasuryUsdcBalance(),
   launch: (args) => launchCampaign(args),
   save: saveCampaign,
