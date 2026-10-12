@@ -200,6 +200,8 @@ const askKimi: Ask = async (system, user, signal) => {
   const client = new OpenAI({
     apiKey: process.env.KIMI_API_KEY,
     baseURL: process.env.KIMI_BASE_URL || DEFAULT_BASE_URL,
+    // Rate-limit (429) retries keep going until the draft deadline aborts the call.
+    maxRetries: 6,
   });
   // `thinking` is a Moonshot extension the SDK types do not know; the SDK sends it as is.
   const body: OpenAI.Chat.ChatCompletionCreateParamsNonStreaming & { thinking: { type: "disabled" } } = {
