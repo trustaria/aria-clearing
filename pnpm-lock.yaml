@@ -57,15 +57,15 @@ importers:
       '@aria-clearing/receipt':
         specifier: workspace:*
         version: link:../receipt
-      '@next/env':
-        specifier: 14.2.33
-        version: 14.2.33
       '@privy-io/react-auth':
         specifier: 2.14.2
         version: 2.14.2(@solana/web3.js@1.99.0(bufferutil@4.1.0)(encoding@0.1.13)(typescript@5.6.3)(utf-8-validate@6.0.6))(@types/react@18.3.27)(bs58@6.0.0)(bufferutil@4.1.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.6.3)(use-sync-external-store@1.7.0(react@18.3.1))(utf-8-validate@6.0.6)(zod@3.25.76)
       '@serwist/next':
         specifier: 9.0.15
         version: 9.0.15(next@14.2.33(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@5.6.3)
+      dotenv:
+        specifier: 16.4.7
+        version: 16.4.7
       next:
         specifier: 14.2.33
         version: 14.2.33(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -2541,8 +2541,8 @@ packages:
     resolution: {integrity: sha512-yS+Q5i3hBf7GBkd4KG8a7eBNNWNGLTaEwwYWUijIYM7zrlYDM0BFXHjjPWlWZ1Rg7UaddZeIDmi9jF3HmqiQ2w==}
     engines: {node: '>=6.0.0'}
 
-  dotenv@16.6.1:
-    resolution: {integrity: sha512-uBq4egWHTcTt33a72vpSG0z3HnPuIl6NqYcTrKEg2azoEyl2hpW0zqlxysq2pK9HlDIHyHyakeYaYnSAwd8bow==}
+  dotenv@16.4.7:
+    resolution: {integrity: sha512-47qPchRCykZC03FhkYAhrvwU4xDBFIj1QPqaarj6mdM/hgUzfPHcpkHJOn3mJAufFeeAxAzeGsr5X0M4k6fLZQ==}
     engines: {node: '>=12'}
 
   dunder-proto@1.0.1:
@@ -5610,7 +5610,7 @@ snapshots:
       '@wallet-standard/app': 1.1.1
       '@walletconnect/ethereum-provider': 2.19.2(@types/react@18.3.27)(bufferutil@4.1.0)(encoding@0.1.13)(react@18.3.1)(typescript@5.6.3)(utf-8-validate@6.0.6)(zod@3.25.76)
       base64-js: 1.5.1
-      dotenv: 16.6.1
+      dotenv: 16.4.7
       encoding: 0.1.13
       eventemitter3: 5.0.1
       fast-password-entropy: 1.1.1
@@ -8125,7 +8125,7 @@ snapshots:
     dependencies:
       esutils: 2.0.3
 
-  dotenv@16.6.1: {}
+  dotenv@16.4.7: {}
 
   dunder-proto@1.0.1:
     dependencies:

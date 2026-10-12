@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
-import PrivyProvider from "./components/privy-provider";
 
 const geistSans = localFont({
   src: "./fonts/GeistVF.woff",
@@ -75,7 +74,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <PrivyProvider>{children}</PrivyProvider>
+        {children}
       </body>
     </html>
   );
