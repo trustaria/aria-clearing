@@ -95,6 +95,16 @@ describe('onCron', () => {
 		expect(reports).toEqual([{ reportedAt: NOW_SEC, release: [], reject: [idA] }])
 	})
 
+	test('rejects every logged id the evidence API does not know', () => {
+		const { runtime, reports, requests } = setup(
+			{ ids: [idA, idB], events: [onchainEvent(0, 1, old), onchainEvent(1, 1, old)] },
+			[],
+		)
+		onCron(runtime, {} as never)
+		expect(requests).toEqual([[idA, idB]])
+		expect(reports).toEqual([{ reportedAt: NOW_SEC, release: [], reject: [idA, idB] }])
+	})
+
 	test('fails the run without a report when the evidence API errors', () => {
 		const { runtime, reports } = setup({ ids: [idA], events: [onchainEvent(0, 1, old)] }, null)
 		expect(() => onCron(runtime, {} as never)).toThrow()
