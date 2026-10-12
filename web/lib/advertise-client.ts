@@ -4,6 +4,11 @@
 export type DraftInput = { brand: string; url: string; description: string };
 export type DraftResult = { claims: string[]; category: string; keywords: string[] } | { manual: true };
 
+export type SiteDraftInput = { url: string; brand?: string };
+export type SiteManualReason = "unreachable" | "empty" | "draft_failed";
+export type SiteDraft = { brand: string; description: string; claims: string[]; category: string; keywords: string[] };
+export type SiteDraftResult = SiteDraft | { manual: true; reason: SiteManualReason };
+
 export type CampaignStatus = "live" | "ending" | "ended";
 export type CampaignSummary = {
   slug: string;
@@ -33,6 +38,8 @@ export type EndResult = { refunded: number; txHash: string } | { error: string }
 
 export type AdvertiseClient = {
   draft(input: DraftInput): Promise<DraftResult>;
+  /** Reads the website and drafts brand, description, claims, category and topics from it. */
+  draftFromSite(input: SiteDraftInput): Promise<SiteDraftResult>;
   listCampaigns(): Promise<CampaignsResponse>;
   launch(input: LaunchInput): Promise<LaunchResult>;
   dispute(slug: string, eventId: string): Promise<DisputeResult>;
@@ -70,6 +77,20 @@ export function createHttpClient(getToken: GetToken, fetchImpl: typeof fetch = f
         return ok && ("manual" in body || Array.isArray(body.claims)) ? body : { manual: true };
       } catch {
         return { manual: true };
+      }
+    },
+    async draftFromSite({ url, brand }) {
+      const failed = { manual: true, reason: "draft_failed" } as const;
+      try {
+        const input = brand ? { url, brand } : { url };
+        const { ok, body } = await call<SiteDraftResult>("/api/advertise/draft", { method: "POST", body: input });
+        if (!ok) return failed;
+        if ("manual" in body) return { manual: true, reason: body.reason ?? "draft_failed" };
+        return typeof body.brand === "string" && typeof body.description === "string" && Array.isArray(body.claims)
+          ? body
+          : failed;
+      } catch {
+        return failed;
       }
     },
     async listCampaigns() {
@@ -133,9 +154,15 @@ function slugify(text: string): string {
     .replace(/^-|-$/g, "");
 }
 
+const MOCK_SITE = {
+  brand: "Crema Works",
+  description:
+    "Crema Works sells compact espresso machines for home kitchens. They are made for people who want café-style espresso in a small space.",
+};
+
 /**
- * In-memory fake. Brand "Manual" drafts nothing ({manual:true}); brand "Fail" makes launch return an error.
- * Launched campaigns are added to the list.
+ * In-memory fake. Brand "Manual" drafts nothing ({manual:true}); a website whose host starts with "manual." can't be
+ * read; brand "Fail" makes launch return an error. Launched campaigns are added to the list.
  */
 export function createMockClient({ delayMs = 800, campaigns = [], maxBudget = 1840 }: MockOptions = {}): AdvertiseClient {
   const list = [...campaigns];
@@ -144,6 +171,17 @@ export function createMockClient({ delayMs = 800, campaigns = [], maxBudget = 18
       await wait(delayMs);
       if (brand.trim().toLowerCase() === "manual") return { manual: true };
       return { claims: MOCK_CLAIMS, category: "food and drink", keywords: ["home espresso", "espresso machine", "coffee at home"] };
+    },
+    async draftFromSite({ url, brand }) {
+      await wait(delayMs * 2);
+      if (/^https:\/\/manual\./i.test(url.trim())) return { manual: true, reason: "unreachable" };
+      return {
+        ...MOCK_SITE,
+        brand: brand?.trim() || MOCK_SITE.brand,
+        claims: MOCK_CLAIMS,
+        category: "food and drink",
+        keywords: ["home espresso", "espresso machine", "coffee at home"],
+      };
     },
     async listCampaigns() {
       await wait(delayMs / 2);

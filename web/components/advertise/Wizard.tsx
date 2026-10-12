@@ -13,7 +13,9 @@ import {
   DEFAULT_CPM_CENTS,
   DRAFT_FAILED,
   LAUNCH_FAILED,
+  SITE_DRAFTED,
   TOPICS_MAX,
+  applySiteDraft,
   approvedClaims,
   budgetCopy,
   budgetError,
@@ -27,6 +29,7 @@ import {
   dollars,
   normalizeClaim,
   parseDollars,
+  siteFailedCopy,
   validateProduct,
   type ProductInput,
 } from "./rules";
@@ -43,6 +46,8 @@ export type WizardState = {
   customBudget: string;
   cpc: string;
   cpm: string;
+  /** The website the Step 1 fields were drafted from; empty when typed by hand. */
+  fromSite: string;
 };
 
 const STEPS: { step: Step; label: string }[] = [
@@ -64,6 +69,7 @@ export const INITIAL_STATE: WizardState = {
   customBudget: "",
   cpc: (DEFAULT_CPC_CENTS / 100).toFixed(2),
   cpm: (DEFAULT_CPM_CENTS / 100).toFixed(2),
+  fromSite: "",
 };
 
 const CARD = "rounded-xl border border-stone-200 bg-white p-4 sm:p-6";
@@ -128,10 +134,33 @@ function Actions({ children }: { children: React.ReactNode }) {
   return <div className="flex justify-end gap-3 pt-2">{children}</div>;
 }
 
-function ProductStep({ product, onChange, onNext }: { product: ProductInput; onChange: (p: ProductInput) => void; onNext: () => void }) {
+function ProductStep({
+  product,
+  drafted,
+  claimsReady,
+  reading,
+  siteError,
+  onChange,
+  onRead,
+  onNext,
+}: {
+  product: ProductInput;
+  /** The fields were drafted from the website now in the URL field. */
+  drafted: boolean;
+  /** Claims are already drafted for exactly these fields. */
+  claimsReady: boolean;
+  reading: boolean;
+  siteError: string | null;
+  onChange: (p: ProductInput) => void;
+  onRead: () => void;
+  onNext: () => void;
+}) {
   const [touched, setTouched] = useState<Partial<Record<keyof ProductInput, boolean>>>({});
+  const [manual, setManual] = useState(false);
   const errors = validateProduct(product);
   const valid = Object.keys(errors).length === 0;
+  const canRead = !errors.url && !reading;
+  const details = manual || drafted || Boolean(siteError) || product.brand !== "" || product.description !== "";
   const show = (field: keyof ProductInput) => (touched[field] ? errors[field] : undefined);
   const field = (name: keyof ProductInput) => ({
     id: `product-${name}`,
@@ -144,50 +173,84 @@ function ProductStep({ product, onChange, onNext }: { product: ProductInput; onC
   });
 
   return (
-    <form
-      className="space-y-6"
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (valid) onNext();
-      }}
-    >
+    <div className="space-y-6">
       <div className="space-y-2">
         <h1 className={H1}>Let&apos;s start with what you sell</h1>
         <p className={HELP}>The AI drafts your ad from this. You approve every word.</p>
       </div>
-      <div className={`${CARD} space-y-5`}>
-        <div className="space-y-1.5">
-          <label htmlFor="product-brand" className={LABEL}>
-            Brand name
-          </label>
-          <input {...field("brand")} placeholder="Crema Works" autoComplete="organization" />
-          {show("brand") && <FieldError id="product-brand-error">{show("brand")}</FieldError>}
-        </div>
-        <div className="space-y-1.5">
-          <label htmlFor="product-url" className={LABEL}>
-            Where should people go after clicking?
-          </label>
+      <form
+        className={`${CARD} space-y-1.5`}
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (canRead) onRead();
+        }}
+      >
+        <label htmlFor="product-url" className={LABEL}>
+          Your website
+        </label>
+        <div className="flex flex-col gap-3 sm:flex-row">
           <input {...field("url")} type="url" inputMode="url" placeholder="https://crema.works/home-espresso" autoComplete="url" />
-          {show("url") && <FieldError id="product-url-error">{show("url")}</FieldError>}
+          <button type="submit" disabled={!canRead} aria-busy={reading || undefined} className={`${details ? SECONDARY : PRIMARY} shrink-0 whitespace-nowrap`}>
+            Read my website
+          </button>
         </div>
-        <div className="space-y-1.5">
-          <label htmlFor="product-description" className={LABEL}>
-            Describe what you sell
-          </label>
-          <textarea {...field("description")} rows={5} placeholder="Compact espresso machines for home kitchens…" />
-          {show("description") ? (
-            <FieldError id="product-description-error">{show("description")}</FieldError>
-          ) : (
-            <p className={HELP}>A few sentences: what it is, who it is for, facts a buyer cares about.</p>
-          )}
-        </div>
-      </div>
-      <Actions>
-        <button type="submit" disabled={!valid} className={PRIMARY}>
-          Draft my claims
-        </button>
-      </Actions>
-    </form>
+        {show("url") ? (
+          <FieldError id="product-url-error">{show("url")}</FieldError>
+        ) : (
+          <p className={HELP} aria-live="polite">
+            {reading ? "Reading your website…" : "The AI drafts your ad from this page. People go here after they click."}
+          </p>
+        )}
+      </form>
+      {siteError && !reading && (
+        <p role="alert" className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          {siteError}
+        </p>
+      )}
+      {!details ? (
+        <p className="text-center">
+          <button type="button" onClick={() => setManual(true)} className={LINK}>
+            or describe it yourself
+          </button>
+        </p>
+      ) : (
+        <form
+          className="space-y-6"
+          aria-busy={reading || undefined}
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (valid && !reading) onNext();
+          }}
+        >
+          <div className={`${CARD} space-y-5`}>
+            {drafted && <p className="text-xs font-medium text-emerald-800">{SITE_DRAFTED}</p>}
+            <div className="space-y-1.5">
+              <label htmlFor="product-brand" className={LABEL}>
+                Brand name
+              </label>
+              <input {...field("brand")} placeholder="Crema Works" autoComplete="organization" />
+              {show("brand") && <FieldError id="product-brand-error">{show("brand")}</FieldError>}
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="product-description" className={LABEL}>
+                Describe what you sell
+              </label>
+              <textarea {...field("description")} rows={5} placeholder="Compact espresso machines for home kitchens…" />
+              {show("description") ? (
+                <FieldError id="product-description-error">{show("description")}</FieldError>
+              ) : (
+                <p className={HELP}>A few sentences: what it is, who it is for, facts a buyer cares about.</p>
+              )}
+            </div>
+          </div>
+          <Actions>
+            <button type="submit" disabled={!valid || reading} className={PRIMARY}>
+              {claimsReady ? "Continue" : "Draft my claims"}
+            </button>
+          </Actions>
+        </form>
+      )}
+    </div>
   );
 }
 
@@ -728,11 +791,14 @@ export default function Wizard({
   const [maxBudget, setMaxBudget] = useState<number | null>(null);
   const [drafting, setDrafting] = useState(false);
   const [draftFailed, setDraftFailed] = useState(false);
+  const [reading, setReading] = useState(false);
+  const [siteError, setSiteError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [progress, setProgress] = useState<Progress | null>(null);
   const [launchError, setLaunchError] = useState<string | null>(null);
   const draftedFor = useRef<string | null>(initialState?.claims?.length ? productKey({ ...INITIAL_STATE.product, ...initialState.product }) : null);
   const draftSeq = useRef(0);
+  const siteSeq = useRef(0);
   const launching = useRef(false);
   const top = useRef<HTMLDivElement>(null);
 
@@ -779,6 +845,30 @@ export default function Wizard({
       }));
     }
     setDrafting(false);
+  }, [client, state.product]);
+
+  /** Drafts Step 1 from the website and carries its claims, category and topics into Steps 2 and 3. */
+  const readWebsite = useCallback(async () => {
+    const seq = ++siteSeq.current;
+    const product = state.product;
+    setReading(true);
+    setSiteError(null);
+    const result = await client
+      .draftFromSite({ url: product.url.trim(), brand: product.brand.trim() || undefined })
+      .catch(() => ({ manual: true, reason: "draft_failed" }) as const);
+    if (seq !== siteSeq.current) return;
+    setReading(false);
+    if ("manual" in result) {
+      setSiteError(siteFailedCopy(result.reason));
+      return;
+    }
+    const prefill = applySiteDraft(product, result);
+    // A claims draft still in flight is superseded by the website's claims.
+    draftSeq.current++;
+    setDrafting(false);
+    setDraftFailed(false);
+    draftedFor.current = productKey(prefill.product);
+    setState((s) => ({ ...s, ...prefill, fromSite: prefill.product.url }));
   }, [client, state.product]);
 
   const toClaims = () => {
@@ -829,7 +919,18 @@ export default function Wizard({
       <Rail step={step} state={state} onGo={(s) => !submitting && go(s)} />
       <div className="min-w-0 max-w-xl space-y-3">
         <p className="text-xs font-medium uppercase tracking-wider text-stone-500 md:hidden">Step {step} of 4</p>
-        {step === 1 && <ProductStep product={state.product} onChange={(product) => patch({ product })} onNext={toClaims} />}
+        {step === 1 && (
+          <ProductStep
+            product={state.product}
+            drafted={state.fromSite !== "" && state.fromSite === state.product.url.trim()}
+            claimsReady={state.claims.length > 0 && draftedFor.current === productKey(state.product)}
+            reading={reading}
+            siteError={siteError}
+            onChange={(product) => patch({ product })}
+            onRead={() => void readWebsite()}
+            onNext={toClaims}
+          />
+        )}
         {step === 2 && (
           <ClaimsStep
             brand={state.product.brand}

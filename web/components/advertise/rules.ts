@@ -34,6 +34,9 @@ export const BUDGET_PRESETS = [200, 500, 1000] as const;
 
 export const DRAFT_FAILED = "We couldn't draft claims right now. Write 3 to 5 short facts about your product.";
 export const LAUNCH_FAILED = "We couldn't launch right now. Nothing was charged. Try again in a minute.";
+export const SITE_UNREADABLE = "We couldn't read that page. Describe what you sell below.";
+export const SITE_DRAFT_FAILED = "We couldn't draft from your website right now. Describe what you sell below.";
+export const SITE_DRAFTED = "Drafted by KIMI from your website — edit anything";
 
 export type ProductInput = { brand: string; url: string; description: string };
 export type ProductErrors = Partial<Record<keyof ProductInput, string>>;
@@ -152,6 +155,29 @@ export function budgetCopy(budgetCents: number, cpcCents: number, cpmCents: numb
 /** Category label with a capital first letter, e.g. "Food and drink". */
 export function categoryLabel(category: string): string {
   return category.charAt(0).toUpperCase() + category.slice(1);
+}
+
+export type SiteDraftFields = { brand: string; description: string; claims: string[]; category: string; keywords: string[] };
+export type SitePrefill = { product: ProductInput; claims: string[]; category: string; keywords: string[] };
+
+/** Step 1 fields and the Step 2–3 values from a website draft, kept within the wizard's limits. */
+export function applySiteDraft(product: ProductInput, draft: SiteDraftFields): SitePrefill {
+  const topics = draft.keywords.map((k) => k.replace(/\s+/g, " ").trim().toLowerCase()).filter((k) => k !== "");
+  return {
+    product: {
+      brand: draft.brand.replace(/\s+/g, " ").trim().slice(0, BRAND_MAX),
+      url: product.url.trim(),
+      description: draft.description.trim().slice(0, DESCRIPTION_MAX),
+    },
+    claims: approvedClaims(draft.claims).slice(0, CLAIMS_MAX),
+    category: (CATEGORIES as readonly string[]).includes(draft.category) ? draft.category : "other",
+    keywords: [...new Set(topics)].slice(0, TOPICS_MAX),
+  };
+}
+
+/** The Step 1 message for a website that could not be drafted from. */
+export function siteFailedCopy(reason: string): string {
+  return reason === "draft_failed" ? SITE_DRAFT_FAILED : SITE_UNREADABLE;
 }
 
 /** Claims 1–2 joined into one example sentence for the card preview. */

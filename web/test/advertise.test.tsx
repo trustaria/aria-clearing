@@ -1,6 +1,10 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import {
+  SITE_DRAFT_FAILED,
+  SITE_DRAFTED,
+  SITE_UNREADABLE,
+  applySiteDraft,
   approvedClaims,
   budgetCopy,
   budgetError,
@@ -12,6 +16,7 @@ import {
   normalizeClaim,
   parseDollars,
   previewSentence,
+  siteFailedCopy,
   validateProduct,
 } from "../components/advertise/rules";
 import Wizard, { LaunchPanel } from "../components/advertise/Wizard";
@@ -203,5 +208,110 @@ describe("advertise client", () => {
     expect("slug" in result && result.slug).toMatch(/^crema-works-/);
     const { campaigns } = await client.listCampaigns();
     expect(campaigns[0]).toMatchObject({ advertiser: "Crema Works", budget: 500, status: "live" });
+  });
+
+  it("drafts from a website with the URL only", async () => {
+    const draft = { brand: "Crema Works", description: product.description, claims, category: "food and drink", keywords: [] };
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify(draft), { status: 200 }));
+    const client = createHttpClient(async () => "tok", fetchImpl as unknown as typeof fetch);
+    await expect(client.draftFromSite({ url: "https://crema.works" })).resolves.toEqual(draft);
+    const [path, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(path).toBe("/api/advertise/draft");
+    expect(JSON.parse(init.body as string)).toEqual({ url: "https://crema.works" });
+  });
+
+  it("keeps the manual reason from a website draft and fails closed on bad replies", async () => {
+    const reply = (body: unknown, status = 200) =>
+      createHttpClient(async () => "tok", (async () => new Response(JSON.stringify(body), { status })) as unknown as typeof fetch);
+    const url = { url: "https://crema.works" };
+    await expect(reply({ manual: true, reason: "empty" }).draftFromSite(url)).resolves.toEqual({ manual: true, reason: "empty" });
+    await expect(reply({ claims }).draftFromSite(url)).resolves.toEqual({ manual: true, reason: "draft_failed" });
+    await expect(reply({ error: "Sign in to continue." }, 401).draftFromSite(url)).resolves.toEqual({
+      manual: true,
+      reason: "draft_failed",
+    });
+  });
+
+  it("mock drafts from a website, or can't read a manual. host", async () => {
+    const client = createMockClient({ delayMs: 0 });
+    const result = await client.draftFromSite({ url: "https://crema.works" });
+    expect(result).toMatchObject({ brand: "Crema Works", category: "food and drink" });
+    await expect(client.draftFromSite({ url: "https://manual.example" })).resolves.toEqual({
+      manual: true,
+      reason: "unreachable",
+    });
+  });
+});
+
+describe("Step 1: read my website", () => {
+  const drafted = {
+    brand: "  Haus of Veil ",
+    description: "Haus of Veil sells care products for leather bags, jewellery and fine tableware.",
+    claims: ["1. Premium leather wipes are made for leather bags.", "Products are crafted in-house.", "  The brand sources rare ingredients.  "],
+    category: "home",
+    keywords: ["Leather bag cleaner", "leather bag cleaner", "jewellery cloth"],
+  };
+  const site = { brand: "", url: " https://hausofveil.com/ ", description: "" };
+
+  it("prefills Step 1 and carries claims, category and topics into Steps 2 and 3", () => {
+    expect(applySiteDraft(site, drafted)).toEqual({
+      product: { brand: "Haus of Veil", url: "https://hausofveil.com/", description: drafted.description },
+      claims: ["Premium leather wipes are made for leather bags.", "Products are crafted in-house.", "The brand sources rare ingredients."],
+      category: "home",
+      keywords: ["leather bag cleaner", "jewellery cloth"],
+    });
+  });
+
+  it("keeps the prefill within the wizard's limits", () => {
+    const prefill = applySiteDraft(site, {
+      ...drafted,
+      brand: "B".repeat(60),
+      claims: Array.from({ length: 7 }, (_, i) => `Claim number ${i + 1} is here.`),
+      category: "weapons",
+      keywords: ["a", "b", "c", "d", "e", "f", "g"],
+    });
+    expect(prefill.product.brand).toHaveLength(40);
+    expect(prefill.claims).toHaveLength(5);
+    expect(prefill.category).toBe("other");
+    expect(prefill.keywords).toHaveLength(6);
+    expect(validateProduct(applySiteDraft(site, drafted).product)).toEqual({});
+  });
+
+  it("explains a failed read", () => {
+    expect(siteFailedCopy("unreachable")).toBe(SITE_UNREADABLE);
+    expect(siteFailedCopy("empty")).toBe(SITE_UNREADABLE);
+    expect(siteFailedCopy("draft_failed")).toBe(SITE_DRAFT_FAILED);
+  });
+
+  const html = (initialState?: Parameters<typeof Wizard>[0]["initialState"]) =>
+    renderToStaticMarkup(<Wizard client={createMockClient()} initialState={initialState} onLaunched={() => {}} />);
+
+  it("leads with the website and a primary Read my website button", () => {
+    const page = html();
+    expect(page).toContain("Your website");
+    expect(page).toMatch(/<button type="submit" disabled=""[^>]*>Read my website/);
+    expect(page).toContain("or describe it yourself");
+    expect(page).not.toContain("Brand name");
+    expect(page.indexOf("Your website")).toBeLessThan(page.indexOf("or describe it yourself"));
+    expect(html({ product: { ...site, url: "https://hausofveil.com/" } })).toMatch(
+      /<button type="submit" class="[^"]*bg-stone-900[^"]*">Read my website/,
+    );
+  });
+
+  it("shows the drafted fields with the KIMI note and continues to the drafted claims", () => {
+    const prefill = applySiteDraft(site, drafted);
+    const page = html({ ...prefill, fromSite: prefill.product.url });
+    expect(page).toContain(SITE_DRAFTED);
+    expect(page).toContain('value="Haus of Veil"');
+    expect(page).toContain(drafted.description);
+    expect(page).toMatch(/<button type="submit" class="[^"]*">Continue/);
+    expect(page).not.toContain("or describe it yourself");
+  });
+
+  it("drops the KIMI note once the website changes", () => {
+    const prefill = applySiteDraft(site, drafted);
+    const page = html({ ...prefill, product: { ...prefill.product, url: "https://other.example/" }, fromSite: prefill.product.url });
+    expect(page).not.toContain(SITE_DRAFTED);
+    expect(page).toContain('value="Haus of Veil"');
   });
 });
