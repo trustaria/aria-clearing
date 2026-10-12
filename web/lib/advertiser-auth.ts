@@ -1,4 +1,4 @@
-import { privyClient } from "@aria-clearing/ops/src/privy";
+import { privyClient } from "@aria-clearing/ops";
 
 export type Advertiser = { userId: string };
 

@@ -14,3 +14,4 @@ export {
   MONAD_TESTNET_CHAIN_ID,
   MONAD_TESTNET_USDC,
 } from "./policy";
+export { authorizationContext, privyClient } from "./privy";

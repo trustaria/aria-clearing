@@ -4,7 +4,7 @@ import { verifyAdvertiser, UNAUTHORIZED_MESSAGE } from "../lib/advertiser-auth";
 
 const verifyAccessToken = vi.fn();
 
-vi.mock("@aria-clearing/ops/src/privy", () => ({
+vi.mock("@aria-clearing/ops", () => ({
   privyClient: () => ({ utils: () => ({ auth: () => ({ verifyAccessToken }) }) }),
 }));
 
