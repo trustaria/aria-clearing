@@ -1,6 +1,10 @@
 import type { CampaignStatsJson, RejectReason, SentenceJson, SentenceStatus } from "../../../lib/advertiser-data";
 import type { CampaignStatus } from "../../../lib/campaign-store";
 import { addressUrl, formatDollars, formatPercent, timeAgo, txUrl } from "../../../lib/format";
+import { NO_ACTIONS, type Actions, type DisputeState } from "./actions";
+
+/** USDC units (6 decimals) per US cent. */
+const UNITS_PER_CENT = 10_000n;
 
 export type Tone = "good" | "pending" | "warn" | "bad" | "idle";
 
@@ -18,6 +22,8 @@ export interface SentenceRow {
   tone: Tone;
   receiptUrl: string;
   disputeSecondsLeft: number;
+  /** This page's dispute of the sentence, if any. */
+  dispute: DisputeState | null;
 }
 
 export interface CampaignView {
@@ -28,6 +34,8 @@ export interface CampaignView {
   sentences: SentenceRow[];
   claims: string[];
   remaining: string;
+  /** True while the End block is shown: live, or ending from this page. */
+  endable: boolean;
   /** "Ended. $X returned." once the campaign has ended. */
   endedNotice: string | null;
   account: {
@@ -87,13 +95,39 @@ export function sentenceMeta(s: SentenceJson, now: number): string {
   return `${s.kind} · ${middle} · ${ago(s.time, now)}`;
 }
 
-/** Maps the stats route's JSON to what the campaign page renders; `now` is unix seconds. Pure. */
-export function toCampaignView(json: CampaignStatsJson, now: number): CampaignView {
+function statusOf(json: CampaignStatsJson, actions: Actions): CampaignStatus {
+  if (json.status === "ended" || actions.end.phase === "ended") return "ended";
+  if (actions.end.phase === "sending") return "ending";
+  return json.status;
+}
+
+/** "Ended. $X returned." from the stats, else from this page's End; null while not ended. */
+function endedNotice(json: CampaignStatsJson, actions: Actions): string | null {
+  if (json.status === "ended") return `Ended. ${formatDollars(BigInt(json.funds.refunded))} returned.`;
+  if (actions.end.phase === "ended") {
+    return `Ended. ${formatDollars(BigInt(actions.end.refunded) * UNITS_PER_CENT)} returned.`;
+  }
+  return null;
+}
+
+/** A sentence this page disputed reads as disputed before the next poll confirms it. */
+function sentenceOf(s: SentenceJson, dispute: DisputeState | null): SentenceJson {
+  return s.status === "being_verified" && dispute?.phase === "sent"
+    ? { ...s, status: "disputed", disputeSecondsLeft: 0 }
+    : s;
+}
+
+/**
+ * Maps the stats route's JSON and this page's actions to what the campaign page renders; `now` is unix seconds.
+ * Pure.
+ */
+export function toCampaignView(json: CampaignStatsJson, now: number, actions: Actions = NO_ACTIONS): CampaignView {
   const { funds, counts } = json;
   const remaining = formatDollars(BigInt(funds.remaining));
+  const status = statusOf(json, actions);
   return {
     brand: json.brand,
-    status: STATUS[json.status],
+    status: STATUS[status],
     cards: [
       { key: "spent", label: "Spent", value: formatDollars(BigInt(funds.spent)), hint: `of ${formatDollars(BigInt(funds.budget))}` },
       { key: "remaining", label: "Remaining", value: remaining, hint: null },
@@ -108,17 +142,23 @@ export function toCampaignView(json: CampaignStatsJson, now: number): CampaignVi
       },
     ],
     verification: verificationLine(counts),
-    sentences: json.sentences.map((s) => ({
-      eventId: s.eventId,
-      quote: s.rationale,
-      meta: sentenceMeta(s, now),
-      tone: SENTENCE_STATUS[s.status].tone,
-      receiptUrl: receiptUrl(s.requestId),
-      disputeSecondsLeft: s.disputeSecondsLeft,
-    })),
+    sentences: json.sentences.map((raw) => {
+      const dispute = actions.disputes[raw.eventId] ?? null;
+      const s = sentenceOf(raw, dispute);
+      return {
+        eventId: s.eventId,
+        quote: s.rationale,
+        meta: sentenceMeta(s, now),
+        tone: SENTENCE_STATUS[s.status].tone,
+        receiptUrl: receiptUrl(s.requestId),
+        disputeSecondsLeft: s.disputeSecondsLeft,
+        dispute,
+      };
+    }),
     claims: json.claims,
     remaining,
-    endedNotice: json.status === "ended" ? `Ended. ${formatDollars(BigInt(funds.refunded))} returned.` : null,
+    endable: status === "live" || (status === "ending" && actions.end.phase === "sending"),
+    endedNotice: endedNotice(json, actions),
     account: {
       campaignId: json.account.campaignId,
       treasury: json.account.treasury,

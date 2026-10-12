@@ -3,10 +3,12 @@
 import { usePrivy } from "@privy-io/react-auth";
 import { useCallback, useRef } from "react";
 import CampaignPanel, { Eyebrow } from "./campaign/CampaignPanel";
+import { useAdvertiseClient } from "./useAdvertiseClient";
 
 /** One advertiser campaign: asks for sign-in, then shows the panel fed by the owner-only stats route. */
 export default function CampaignView({ slug, isNew }: { slug: string; isNew: boolean }) {
   const { ready, authenticated, login, getAccessToken } = usePrivy();
+  const client = useAdvertiseClient();
   // Held in a ref so a new function identity from Privy does not restart polling.
   const tokenRef = useRef(getAccessToken);
   tokenRef.current = getAccessToken;
@@ -18,6 +20,9 @@ export default function CampaignView({ slug, isNew }: { slug: string; isNew: boo
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
   }, [slug]);
+
+  const dispute = useCallback((eventId: string) => client.dispute(slug, eventId), [client, slug]);
+  const end = useCallback(() => client.endCampaign(slug), [client, slug]);
 
   if (!ready || !authenticated) {
     return (
@@ -39,5 +44,5 @@ export default function CampaignView({ slug, isNew }: { slug: string; isNew: boo
     );
   }
 
-  return <CampaignPanel isNew={isNew} fetchStats={fetchStats} />;
+  return <CampaignPanel isNew={isNew} fetchStats={fetchStats} onDispute={dispute} onEnd={end} />;
 }

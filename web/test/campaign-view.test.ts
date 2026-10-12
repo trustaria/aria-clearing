@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { NO_ACTIONS, reduceActions, type ActionEvent, type Actions } from "../components/advertise/campaign/actions";
 import { ago, toCampaignView, verificationLine } from "../components/advertise/campaign/view-model";
 import type { CampaignStatsJson } from "../lib/advertiser-data";
 
@@ -108,6 +109,75 @@ describe("toCampaignView", () => {
     );
     expect(ended.status.label).toBe("Ended");
     expect(ended.endedNotice).toBe("Ended. $3.77 returned.");
+  });
+});
+
+describe("toCampaignView with page actions", () => {
+  const after = (...events: ActionEvent[]): Actions => events.reduce(reduceActions, NO_ACTIONS);
+
+  it("marks a sentence being disputed, then disputed once the tx is in", () => {
+    const sending = toCampaignView(json, NOW, after({ type: "dispute-start", eventId: "0x01" }));
+    expect(sending.sentences[0]).toMatchObject({ dispute: { phase: "sending" }, disputeSecondsLeft: 16 });
+
+    const sent = toCampaignView(
+      json,
+      NOW,
+      after({ type: "dispute-start", eventId: "0x01" }, { type: "dispute-done", eventId: "0x01" }),
+    );
+    expect(sent.sentences[0]).toMatchObject({
+      meta: "Impression · disputed · being verified · $0.01 · 4 s ago",
+      tone: "warn",
+      disputeSecondsLeft: 0,
+    });
+    expect(sent.sentences[1].dispute).toBeNull();
+  });
+
+  it("keeps the window open and shows the error when a dispute fails", () => {
+    const failed = toCampaignView(
+      json,
+      NOW,
+      after({ type: "dispute-start", eventId: "0x01" }, { type: "dispute-failed", eventId: "0x01", message: "Closed." }),
+    );
+    expect(failed.sentences[0]).toMatchObject({ dispute: { phase: "error", message: "Closed." }, disputeSecondsLeft: 16 });
+  });
+
+  it("shows Ending while End is sending, then Ended with the refund", () => {
+    const sending = toCampaignView(json, NOW, after({ type: "end-ask" }, { type: "end-start" }));
+    expect(sending.status).toEqual({ label: "Ending", tone: "warn" });
+    expect(sending.endable).toBe(true);
+    expect(sending.endedNotice).toBeNull();
+
+    const ended = toCampaignView(json, NOW, after({ type: "end-ask" }, { type: "end-start" }, { type: "end-done", refunded: 377 }));
+    expect(ended.status).toEqual({ label: "Ended", tone: "idle" });
+    expect(ended.endable).toBe(false);
+    expect(ended.endedNotice).toBe("Ended. $3.77 returned.");
+  });
+
+  it("returns to Live with the error when End fails", () => {
+    const failed = toCampaignView(
+      json,
+      NOW,
+      after({ type: "end-ask" }, { type: "end-start" }, { type: "end-failed", message: "Try again." }),
+    );
+    expect(failed.status.label).toBe("Live");
+    expect(failed.endable).toBe(true);
+  });
+
+  it("hides End for a campaign another tab is ending", () => {
+    expect(toCampaignView({ ...json, status: "ending" }, NOW).endable).toBe(false);
+  });
+});
+
+describe("reduceActions", () => {
+  it("asks before ending and can cancel", () => {
+    const asked = reduceActions(NO_ACTIONS, { type: "end-ask" });
+    expect(asked.end).toEqual({ phase: "confirming" });
+    expect(reduceActions(asked, { type: "end-cancel" }).end).toEqual({ phase: "idle" });
+  });
+
+  it("asks again after a failed End", () => {
+    const failed = reduceActions(NO_ACTIONS, { type: "end-failed", message: "x" });
+    expect(reduceActions(failed, { type: "end-ask" }).end).toEqual({ phase: "confirming" });
   });
 });
 

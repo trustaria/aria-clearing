@@ -27,12 +27,20 @@ export type LaunchInput = DraftInput & {
   email?: string;
 };
 export type LaunchResult = { slug: string; txHash: string } | { error: string };
+export type DisputeResult = { txHash: string } | { error: string };
+/** `refunded` is in cents. */
+export type EndResult = { refunded: number; txHash: string } | { error: string };
 
 export type AdvertiseClient = {
   draft(input: DraftInput): Promise<DraftResult>;
   listCampaigns(): Promise<CampaignsResponse>;
   launch(input: LaunchInput): Promise<LaunchResult>;
+  dispute(slug: string, eventId: string): Promise<DisputeResult>;
+  endCampaign(slug: string): Promise<EndResult>;
 };
+
+export const DISPUTE_FAILED = "We couldn't dispute this one right now. Try again in a few seconds.";
+export const END_FAILED = "We couldn't end your campaign right now. Nothing changed. Try again in a minute.";
 
 export type GetToken = () => Promise<string | null>;
 
@@ -76,6 +84,26 @@ export function createHttpClient(getToken: GetToken, fetchImpl: typeof fetch = f
         return body;
       } catch {
         return { error: "" };
+      }
+    },
+    async dispute(slug, eventId) {
+      const path = `/api/advertise/campaigns/${encodeURIComponent(slug)}/dispute`;
+      try {
+        const { ok, body } = await call<DisputeResult>(path, { method: "POST", body: { eventId } });
+        if (ok && "txHash" in body) return body;
+        return { error: ("error" in body && body.error) || DISPUTE_FAILED };
+      } catch {
+        return { error: DISPUTE_FAILED };
+      }
+    },
+    async endCampaign(slug) {
+      const path = `/api/advertise/campaigns/${encodeURIComponent(slug)}/end`;
+      try {
+        const { ok, body } = await call<EndResult>(path, { method: "POST", body: {} });
+        if (ok && "refunded" in body) return body;
+        return { error: ("error" in body && body.error) || END_FAILED };
+      } catch {
+        return { error: END_FAILED };
       }
     },
   };
@@ -127,6 +155,16 @@ export function createMockClient({ delayMs = 800, campaigns = [], maxBudget = 18
       const slug = `${slugify(input.brand)}-${Math.random().toString(36).slice(2, 6)}`;
       list.unshift({ slug, advertiser: input.brand.trim(), status: "live", spent: 0, budget: input.budgetCents, impressions: 0, clicks: 0 });
       return { slug, txHash: `mock-${slug}` };
+    },
+    async dispute(_slug, eventId) {
+      await wait(delayMs);
+      return { txHash: `mock-dispute-${eventId}` };
+    },
+    async endCampaign(slug) {
+      await wait(delayMs * 2);
+      const campaign = list.find((c) => c.slug === slug);
+      if (campaign) campaign.status = "ended";
+      return { refunded: campaign ? campaign.budget - campaign.spent : 0, txHash: `mock-end-${slug}` };
     },
   };
 }
