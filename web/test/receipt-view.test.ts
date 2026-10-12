@@ -310,3 +310,23 @@ describe("lifecycle summary", () => {
     expect(view.lifecycleSummary).toBe("issued → logged → awaiting verification");
   });
 });
+
+describe("status pill on a fingerprint mismatch", () => {
+  it("shows Mismatch instead of the settlement status when the card's sentence differs", () => {
+    const base = receipt();
+    const view = toReceiptView(
+      { ...base, seen: [{ field: "rationaleHash", expected: TX(201), actual: TX(200), matches: false }] },
+      CONTRACT,
+    );
+    expect(view.status).toMatchObject({ label: "Mismatch", tone: "bad" });
+  });
+
+  it("keeps the settlement status when the fingerprint matches", () => {
+    const base = receipt();
+    const view = toReceiptView(
+      { ...base, seen: [{ field: "rationaleHash", expected: TX(200), actual: TX(200), matches: true }] },
+      CONTRACT,
+    );
+    expect(view.status).toMatchObject({ label: "Verified" });
+  });
+});

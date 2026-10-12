@@ -276,14 +276,22 @@ function seenOf(receipt: Receipt): SeenView {
 }
 
 /** Maps a verified receipt to what the receipt page renders. Pure. */
+const MISMATCH: StatusView = {
+  status: "rejected",
+  label: "Mismatch",
+  tone: "bad",
+  note: "This receipt does not cover what the card showed",
+};
+
 export function toReceiptView(receipt: Receipt, contract: string): ReceiptView {
   const cited = new Set(receipt.events.flatMap((e) => e.claimRefs));
   const total = receipt.events.reduce((sum, e) => sum + e.price, 0n);
+  const seen = seenOf(receipt);
   return {
     requestId: receipt.requestId,
     ok: receipt.ok,
     consistent: receipt.consistent,
-    seen: seenOf(receipt),
+    seen,
     sentence: receipt.events[0]?.rationale ?? "",
     advertiser: receipt.campaign.advertiser,
     advertiserUrl: addressUrl(receipt.campaign.advertiser),
@@ -293,7 +301,7 @@ export function toReceiptView(receipt: Receipt, contract: string): ReceiptView {
     contractUrl: addressUrl(contract),
     claims: receipt.campaign.claims === null ? null : parseClaims(receipt.campaign.claims, cited),
     checks: checksOf(receipt),
-    status: overallStatus(receipt.events),
+    status: seen.state === "mismatch" ? MISMATCH : overallStatus(receipt.events),
     lifecycleSummary: lifecycleSummary(receipt.events),
     totalPrice: formatUsdc(total),
     events: receipt.events.map((event) => ({
