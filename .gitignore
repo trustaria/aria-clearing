@@ -11,3 +11,5 @@ cache/
 broadcast/
 *.log
 .DS_Store
+
+.claude/
