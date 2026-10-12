@@ -1,0 +1,24 @@
+{
+  "name": "@aria-clearing/ops",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "privy:relayer": "tsx scripts/relayer.ts",
+    "privy:policy": "tsx scripts/policy.ts",
+    "privy:probe": "tsx scripts/probe.ts"
+  },
+  "dependencies": {
+    "@aria-clearing/receipt": "workspace:*",
+    "@privy-io/node": "0.35.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.9.0",
+    "tsx": "4.19.2",
+    "typescript": "5.6.3",
+    "vitest": "2.1.9"
+  }
+}
