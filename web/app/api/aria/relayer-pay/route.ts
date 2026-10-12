@@ -1,5 +1,5 @@
 import { MONAD_TESTNET_CAIP2, MONAD_TESTNET_CHAIN_ID, privyErrorCode } from "@aria-clearing/ops";
-import { authorizationContext, privyClient } from "@aria-clearing/ops/src/privy";
+import { authorizationContext, privyClient } from "@aria-clearing/ops";
 import { publisherStore } from "@/lib/publisher";
 
 export const runtime = "nodejs";
