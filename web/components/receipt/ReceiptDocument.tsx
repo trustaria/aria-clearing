@@ -36,7 +36,7 @@ export function Section({ title, aside, children }: { title: string; aside?: Rea
     <section className="border-t border-stone-200 pt-6">
       <div className="mb-4 flex items-baseline justify-between gap-4">
         <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-stone-500">{title}</h2>
-        {aside && <div className="text-xs text-stone-500">{aside}</div>}
+        {aside && <div className="whitespace-nowrap text-xs text-stone-500">{aside}</div>}
       </div>
       {children}
     </section>
