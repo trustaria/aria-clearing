@@ -1,27 +1,15 @@
-import type { Hex } from "viem";
+import { eventStore, type ServedPick } from "./store";
 
-/** A card the server handed out, keyed by requestId. */
-export type ServedPick = {
-  requestId: string;
-  slug: string;
-  campaignId: Hex;
-  rationale: string;
-  claimRefs: number[];
-  servedAt: number;
-};
-
-// Kept on globalThis so every route bundle (and dev reloads) share one map.
-const globalStore = globalThis as typeof globalThis & { __ariaServed?: Map<string, ServedPick> };
-const served = (globalStore.__ariaServed ??= new Map<string, ServedPick>());
+export type { ServedPick };
 
 export function rememberServed(pick: ServedPick): void {
-  served.set(pick.requestId, pick);
+  eventStore().putServed(pick);
 }
 
 export function getServed(requestId: string): ServedPick | undefined {
-  return served.get(requestId);
+  return eventStore().getServed(requestId);
 }
 
 export function listServed(): ServedPick[] {
-  return [...served.values()];
+  return eventStore().listServed();
 }
