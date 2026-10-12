@@ -15,8 +15,13 @@ type Turn = {
   pending?: boolean;
 };
 
-const EXAMPLES = [
+/** Empty-state suggestions: buying-intent questions first, one informational question last. */
+export const EXAMPLES = [
   "Planning 5 days in Lisbon with two kids, what should I book first?",
+  "Is an e-bike worth it for a 12 km commute?",
+  "Which running shoes should I get for my first half marathon?",
+  "Which notes app works well for meeting notes?",
+  "What's a good building set for a 7-year-old?",
   "What's the difference between RAM and storage?",
 ];
 
