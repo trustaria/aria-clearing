@@ -103,9 +103,9 @@ export default function Chat({ initialModel }: { initialModel: ModelName | null 
             </span>
           )}
         </div>
-        <a href="/wallet" className="text-xs text-neutral-500 hover:underline">
-          Wallet
-        </a>
+        {model && model !== "stub" && (
+          <span className="text-xs text-neutral-500">Answers by KIMI · {model}</span>
+        )}
       </header>
 
       <main className="flex-1 pb-36">
