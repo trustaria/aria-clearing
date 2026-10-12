@@ -33,7 +33,7 @@ export default function AdCard({ card }: { card: CardData }) {
         >
           Visit {card.advertiser}
         </a>
-        <a href={receiptHref(card)} className="text-neutral-500 hover:underline">
+        <a href={receiptHref(card)} target="_blank" rel="noopener noreferrer" className="text-neutral-500 hover:underline">
           Why this ad?
         </a>
       </div>

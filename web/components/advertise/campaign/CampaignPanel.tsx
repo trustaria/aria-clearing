@@ -99,7 +99,7 @@ function SentenceItem({
             {sending ? "Disputing…" : `Dispute (${left} s)`}
           </button>
         )}
-        <a href={row.receiptUrl} className={`text-sm text-stone-500 ${LINK}`}>
+        <a href={row.receiptUrl} target="_blank" rel="noopener noreferrer" className={`text-sm text-stone-500 ${LINK}`}>
           Proof<span className="sr-only"> for this sentence</span>
         </a>
       </div>

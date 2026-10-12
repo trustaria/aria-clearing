@@ -160,6 +160,8 @@ function FeedItem({ row }: { row: FeedRow }) {
       </div>
       <a
         href={row.receiptUrl}
+        target="_blank"
+        rel="noopener noreferrer"
         className="mt-0.5 shrink-0 text-sm text-stone-500 underline decoration-stone-300 underline-offset-4 transition hover:text-stone-900"
       >
         Proof<span className="sr-only"> for this event</span>
@@ -304,6 +306,8 @@ export function PublisherPanel({
           {view?.latestReceiptUrl ? (
             <a
               href={view.latestReceiptUrl}
+              target="_blank"
+              rel="noopener noreferrer"
               className="underline decoration-stone-300 underline-offset-4 hover:text-stone-900"
             >
               View any receipt.

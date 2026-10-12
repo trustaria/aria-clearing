@@ -82,4 +82,10 @@ describe("AdCard", () => {
     );
     expect(html).toContain("Why this ad?");
   });
+
+  it("opens the receipt page in a new tab so the chat stays open", () => {
+    const why = html.match(/<a[^>]*href="\/receipt\/[^"]*"[^>]*>/)![0];
+    expect(why).toContain('target="_blank"');
+    expect(why).toContain('rel="noopener noreferrer"');
+  });
 });
