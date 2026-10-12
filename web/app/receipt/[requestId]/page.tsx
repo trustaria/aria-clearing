@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import AutoRefresh from "../../../components/receipt/AutoRefresh";
 import CopyCommand from "../../../components/receipt/CopyCommand";
 import ReceiptDocument from "../../../components/receipt/ReceiptDocument";
+import { getPublisherStats } from "../../../lib/envio";
 import { addressUrl, shortAddress } from "../../../lib/format";
 import { loadReceipt } from "../load";
-import { toReceiptView, verifyCommand } from "../view-model";
+import { toReceiptView, trustLine, verifyCommand } from "../view-model";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +16,12 @@ type Props = { params: { requestId: string } };
 
 export function generateMetadata({ params }: Props): Metadata {
   return { title: `Receipt ${decodeURIComponent(params.requestId)}` };
+}
+
+/** Publisher verification rate from the indexer; renders nothing when unavailable. Streams in without blocking the receipt. */
+async function PublisherTrust({ publisher }: { publisher: string }) {
+  const line = trustLine(await getPublisherStats(publisher));
+  return line ? <span>{line}</span> : null;
 }
 
 function Notice({
@@ -62,7 +70,13 @@ export default async function ReceiptPage({ params }: Props) {
   let refresh = true;
   if (result.state === "found") {
     const view = toReceiptView(result.receipt, result.contract);
-    content = <ReceiptDocument view={view} />;
+    const publisher = result.receipt.events[0]?.publisher;
+    const trust = publisher ? (
+      <Suspense fallback={null}>
+        <PublisherTrust publisher={publisher} />
+      </Suspense>
+    ) : null;
+    content = <ReceiptDocument view={view} trust={trust} />;
     refresh = !view.final;
   } else if (result.state === "missing") {
     content = (

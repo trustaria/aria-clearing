@@ -3,7 +3,7 @@ import { addressUrl, formatDollars, formatMon, formatPercent, publisherKey, time
 import type { Tone } from "../receipt/view-model";
 
 export interface CardView {
-  key: "earnings" | "pending" | "impressions" | "clicks" | "ctr" | "rejected";
+  key: "earnings" | "pending" | "impressions" | "clicks" | "ctr" | "rejected" | "verification";
   label: string;
   value: string;
   hint: string;
@@ -23,6 +23,8 @@ export interface DashboardView {
   /** Failed payouts waiting for a retry; null when there are none. */
   retryAmount: string | null;
   feed: FeedRow[];
+  /** The verification rate card is shown, so account details credit its source. */
+  hasVerificationRate: boolean;
   publisherId: string;
   latestReceiptUrl: string | null;
   account: {
@@ -95,11 +97,28 @@ export function receiptUrl(requestId: string): string {
   return `/receipt/${encodeURIComponent(requestId)}`;
 }
 
+/** Basis points as a percentage without trailing zeros, e.g. 10000 → "100%", 9550 → "95.5%". */
+export function formatRate(bps: number): string {
+  return `${Number((bps / 100).toFixed(1))}%`;
+}
+
+/** Overview card for the share of verified ads; null when the rate is unknown. */
+export function verificationCard(bps: number | null | undefined): CardView | null {
+  if (bps === null || bps === undefined) return null;
+  return {
+    key: "verification",
+    label: "Verification rate",
+    value: formatRate(bps),
+    hint: "Share of your ads verified by Chainlink",
+  };
+}
+
 /** Maps the publisher route's JSON to what the dashboard renders; `now` is unix seconds. Pure. */
 export function toDashboardView(json: DashboardJson, now: number): DashboardView {
   const { totals } = json;
   const shown = totals.impressions;
   const credit = BigInt(json.credit);
+  const verification = verificationCard(json.trustScoreBps);
   return {
     cards: [
       { key: "earnings", label: "Earnings", value: formatDollars(BigInt(totals.paid)), hint: "Paid out to you" },
@@ -123,7 +142,9 @@ export function toDashboardView(json: DashboardJson, now: number): DashboardView
         value: totals.rejected.toLocaleString("en-US"),
         hint: rejectedSummary(totals.rejectedBy),
       },
+      ...(verification ? [verification] : []),
     ],
+    hasVerificationRate: verification !== null,
     balance: formatDollars(BigInt(json.usdc)),
     retryAmount: credit > 0n ? formatDollars(credit) : null,
     feed: json.activity.map((item) => ({

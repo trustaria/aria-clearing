@@ -105,7 +105,8 @@ function EventLifecycle({ event }: { event: EventView }) {
   );
 }
 
-export default function ReceiptDocument({ view }: { view: ReceiptView }) {
+/** `trust` is an optional footer line, rendered in place so it can stream in after the receipt. */
+export default function ReceiptDocument({ view, trust }: { view: ReceiptView; trust?: React.ReactNode }) {
   return (
     <article className="space-y-10">
       <header className="space-y-8">
@@ -219,6 +220,7 @@ export default function ReceiptDocument({ view }: { view: ReceiptView }) {
           )}
         </span>
         <span>Monad testnet</span>
+        {trust}
       </footer>
     </article>
   );

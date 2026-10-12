@@ -1,6 +1,6 @@
 import { Kind, type Receipt, type ReceiptEvent } from "@aria-clearing/receipt";
 import { describe, expect, it } from "vitest";
-import { STATUS, toReceiptView } from "../app/receipt/view-model";
+import { STATUS, toReceiptView, trustLine } from "../app/receipt/view-model";
 
 const CONTRACT = "0xeCED10b07169857eE91441BBDdeb9653bF7cC041";
 const PUBLISHER = "0xD2D508841C0C99D31C78C03C94338D88Ca19416b";
@@ -161,5 +161,33 @@ describe("toReceiptView", () => {
     const view = toReceiptView(receipt(), CONTRACT);
     expect(view.contractUrl).toBe(`https://testnet.monadvision.com/address/${CONTRACT}`);
     expect(view.verifyCommand).toBe("pnpm --filter @aria-clearing/receipt verify req_fixture");
+  });
+});
+
+describe("trustLine", () => {
+  const stats = {
+    address: "0x67435bD1FCd81D6c25C6546a86af0eF6887F72cb",
+    impressions: 3,
+    clicks: 0,
+    pending: 0,
+    disputed: 0,
+    released: 3,
+    rejected: 0,
+    earned: 0n,
+    trustScoreBps: 10_000,
+    trustScore: 1,
+    lastActivityAt: 0,
+  } as const;
+
+  it("reads the rate and settled count", () => {
+    expect(trustLine(stats)).toBe("Publisher verification rate: 100% across 3 settled events · indexed by Envio");
+    expect(trustLine({ ...stats, released: 1, trustScoreBps: 9_550 })).toBe(
+      "Publisher verification rate: 95.5% across 1 settled event · indexed by Envio",
+    );
+  });
+
+  it("is hidden without a score", () => {
+    expect(trustLine(null)).toBeNull();
+    expect(trustLine({ ...stats, trustScoreBps: null, trustScore: null })).toBeNull();
   });
 });

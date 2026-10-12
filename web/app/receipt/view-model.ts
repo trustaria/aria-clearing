@@ -1,4 +1,5 @@
 import { Kind, type EventStatus, type Receipt, type ReceiptEvent } from "@aria-clearing/receipt";
+import type { PublisherStats } from "../../lib/envio";
 import { addressUrl, formatUsdc, txUrl } from "../../lib/format";
 
 export type Tone = "pending" | "warn" | "good" | "bad";
@@ -175,4 +176,12 @@ export function toReceiptView(receipt: Receipt, contract: string): ReceiptView {
     final: receipt.events.every((e) => e.status === "released" || e.status === "rejected"),
     verifyCommand: verifyCommand(receipt.requestId),
   };
+}
+
+/** Footer line for the publisher's verification rate; null when the indexer has no score. */
+export function trustLine(stats: PublisherStats | null): string | null {
+  if (!stats || stats.trustScoreBps === null) return null;
+  const events = stats.released + stats.rejected + stats.disputed;
+  const rate = `${Number((stats.trustScoreBps / 100).toFixed(1))}%`;
+  return `Publisher verification rate: ${rate} across ${events.toLocaleString("en-US")} settled ${events === 1 ? "event" : "events"} · indexed by Envio`;
 }

@@ -12,6 +12,7 @@ import {
 import { monadTestnet } from "viem/chains";
 import { campaigns } from "./campaigns";
 import { deployment } from "./deployment";
+import { getPublisherStats } from "./envio";
 
 /**
  * Blocks scanned back from the head. Monad makes ~2.5 blocks a second, so 20k blocks is the last ~2 hours,
@@ -106,6 +107,8 @@ export interface DashboardJson {
   activity: (Stringified<Activity> & { time: number })[];
   fromBlock: string;
   toBlock: string;
+  /** Share of the publisher's events that were verified, in basis points; null when unknown. */
+  trustScoreBps?: number | null;
 }
 
 /** Advertiser names by onchain campaign id, from the seeded campaigns. */
@@ -241,6 +244,7 @@ export function toDashboardJson(input: {
   activity: Activity[];
   range: { fromBlock: bigint; toBlock: bigint };
   times: [BlockTime, BlockTime];
+  trustScoreBps?: number | null;
 }): DashboardJson {
   const totals = totalsOf(input.activity);
   return {
@@ -264,6 +268,7 @@ export function toDashboardJson(input: {
     })),
     fromBlock: input.range.fromBlock.toString(),
     toBlock: input.range.toBlock.toString(),
+    trustScoreBps: input.trustScoreBps ?? null,
   };
 }
 
@@ -361,12 +366,13 @@ export async function loadDashboard(address: string, rpc: PublicClient = client(
   const last = await rpc.getBlock();
   const range = scanRange(last.number, SCAN_BLOCKS, deployBlock);
 
-  const [logs, usdcBalance, credit, mon, first] = await Promise.all([
+  const [logs, usdcBalance, credit, mon, first, stats] = await Promise.all([
     getClearingLogs(clearing, range, rpc),
     rpc.readContract({ address: usdc, abi: erc20Abi, functionName: "balanceOf", args: [publisher] }),
     rpc.readContract({ address: clearing, abi: ariaClearingAbi, functionName: "credit", args: [publisher] }),
     rpc.getBalance({ address: publisher }),
     rpc.getBlock({ blockNumber: range.fromBlock }),
+    getPublisherStats(publisher),
   ]);
 
   return toDashboardJson({
@@ -377,6 +383,7 @@ export async function loadDashboard(address: string, rpc: PublicClient = client(
     mon,
     activity: activityFrom(logs, publisher),
     range,
+    trustScoreBps: stats?.trustScoreBps ?? null,
     times: [
       { block: range.fromBlock, time: Number(first.timestamp) },
       { block: range.toBlock, time: Number(last.timestamp) },

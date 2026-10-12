@@ -217,6 +217,12 @@ function AccountDetails({ view, email }: { view: DashboardView; email?: string }
         </dd>
         <dt className="text-stone-500">Network</dt>
         <dd>Monad testnet · payouts in USDC</dd>
+        {view.hasVerificationRate && (
+          <>
+            <dt className="text-stone-500">Verification rate</dt>
+            <dd>Indexed by Envio HyperIndex</dd>
+          </>
+        )}
         <dt className="text-stone-500">Native balance</dt>
         <dd className="font-mono">{account.mon} MON</dd>
         <dt className="text-stone-500">Blocks scanned</dt>

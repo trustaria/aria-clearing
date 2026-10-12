@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activitySentence, ctr, rejectedSummary, toDashboardView } from "../app/dashboard/view-model";
+import { activitySentence, ctr, formatRate, rejectedSummary, toDashboardView } from "../app/dashboard/view-model";
 import type { DashboardJson } from "../lib/dashboard-data";
 
 const ME = "0x67435bD1FCd81D6c25C6546a86af0eF6887F72cb";
@@ -165,5 +165,32 @@ describe("toDashboardView", () => {
     expect(view.cards.find((c) => c.key === "ctr")?.value).toBe("—");
     expect(view.cards.find((c) => c.key === "pending")?.hint).toBe("Nothing waiting");
     expect(view.latestReceiptUrl).toBeNull();
+  });
+});
+
+describe("verification rate", () => {
+  it("formats basis points as a percentage", () => {
+    expect(formatRate(10_000)).toBe("100%");
+    expect(formatRate(9_550)).toBe("95.5%");
+    expect(formatRate(0)).toBe("0%");
+  });
+
+  it("adds the card when the rate is known", () => {
+    const view = toDashboardView(json({ trustScoreBps: 10_000 }), NOW);
+    expect(view.cards.find((c) => c.key === "verification")).toEqual({
+      key: "verification",
+      label: "Verification rate",
+      value: "100%",
+      hint: "Share of your ads verified by Chainlink",
+    });
+    expect(view.hasVerificationRate).toBe(true);
+  });
+
+  it("hides the card when the rate is null or missing", () => {
+    for (const overrides of [{ trustScoreBps: null }, {}]) {
+      const view = toDashboardView(json(overrides), NOW);
+      expect(view.cards.some((c) => c.key === "verification")).toBe(false);
+      expect(view.hasVerificationRate).toBe(false);
+    }
   });
 });
