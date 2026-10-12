@@ -12,6 +12,12 @@ export default function PrivyProvider({
     <BasePrivyProvider
       appId={process.env.NEXT_PUBLIC_PRIVY_APP_ID!}
       config={{
+        loginMethods: ["email"],
+        appearance: {
+          landingHeader: "Sign in to Aria",
+          loginMessage: "Earnings and payouts for your AI app",
+          showWalletLoginFirst: false,
+        },
         // Create embedded wallets for users who don't have a wallet
         embeddedWallets: {
           ethereum: {
