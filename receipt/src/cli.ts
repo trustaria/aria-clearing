@@ -7,7 +7,7 @@ import { verifyReceipt, type Receipt } from "./verify";
 const DEFAULT_RPC = "https://testnet-rpc.monad.xyz";
 const DEPLOYMENT_PATH = new URL("../../deployments/10143.json", import.meta.url);
 
-const USAGE = "Usage: verify <requestId> [--rpc URL] [--address 0x..] [--from-block N]";
+const USAGE = "Usage: verify <requestId> [--rpc URL] [--address 0x..] [--from-block N] [--campaign-block N]";
 
 const mark = (pass: boolean) => (pass ? "✓" : "✗");
 
@@ -60,6 +60,7 @@ async function main() {
       rpc: { type: "string" },
       address: { type: "string" },
       "from-block": { type: "string" },
+      "campaign-block": { type: "string" },
     },
   });
 
@@ -75,6 +76,7 @@ async function main() {
     rpcUrl: values.rpc ?? DEFAULT_RPC,
     address,
     fromBlock: fromBlock === undefined ? undefined : BigInt(fromBlock),
+    campaignFromBlock: values["campaign-block"] === undefined ? undefined : BigInt(values["campaign-block"]),
   });
   console.log(formatReceipt(receipt));
   process.exitCode = receipt.ok ? 0 : 1;
