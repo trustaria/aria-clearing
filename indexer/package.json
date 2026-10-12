@@ -7,6 +7,8 @@
     "codegen": "envio codegen",
     "dev": "envio dev",
     "start": "envio start",
+    "resync": "envio start --restart",
+    "docker:up": "envio local docker up",
     "stop": "envio stop",
     "sync-config": "node scripts/sync-config.mjs",
     "typecheck": "tsc --noEmit",
