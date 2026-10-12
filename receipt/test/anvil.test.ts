@@ -35,6 +35,13 @@ const requestId = "req_anvil";
 const claims = formatClaims(["Kids under 6 stay free.", "Free cancellation up to 48 hours."]);
 const campaignId = keccak256(toBytes("hotel-lumen"));
 const rationale = "Kids under 6 stay free.";
+const lateRequestId = "req_late";
+const lateClaims = formatClaims(["Free airport pickup.", "Late checkout until 2pm."]);
+const lateCampaignId = keccak256(toBytes("hotel-late"));
+const lateRationale = "Free airport pickup.";
+// One second between blocks keeps timestamps strictly increasing, as the block search needs.
+const mine = (client: PublicClient, blocks: number) =>
+  client.request({ method: "anvil_mine" as never, params: [`0x${blocks.toString(16)}`, "0x1"] as never });
 
 describe.skipIf(!hasFoundry)("verifyReceipt against anvil", () => {
   let anvil: ChildProcess;
@@ -82,6 +89,20 @@ describe.skipIf(!hasFoundry)("verifyReceipt against anvil", () => {
     ]);
     for (let i = 0; i < 30; i++) await client.request({ method: "evm_mine" as never, params: [] as never });
     await send("eventSettled", [eventIdOf(requestId, Kind.Impression), 3]);
+
+    // A campaign created long after deploy.
+    await mine(client, 1500);
+    await send("campaignCreated", [lateCampaignId, lateClaims, claimsHash(lateClaims)]);
+    await mine(client, 20);
+    await send("eventLogged", [
+      eventIdOf(lateRequestId, Kind.Impression),
+      lateCampaignId,
+      lateRequestId,
+      Kind.Impression,
+      lateRationale,
+      keccak256(toBytes(lateRationale)),
+      [1],
+    ]);
   }, 60_000);
 
   afterAll(() => {
@@ -120,6 +141,41 @@ describe.skipIf(!hasFoundry)("verifyReceipt against anvil", () => {
     expect(receipt.ok).toBe(true);
     expect(receipt.campaign.claims).toBeNull();
     expect(receipt.campaign.claimsMatch).toBe(true);
+  });
+
+  it("finds the claims of a campaign created far after the deploy block", async () => {
+    const receipt = await verifyReceipt(lateRequestId, { rpcUrl: RPC, address: emitter, fromBlock: 0n, maxRange: 7n });
+
+    expect(receipt.ok).toBe(true);
+    expect(receipt.campaign.claims).toBe(lateClaims);
+    expect(receipt.events[0].citedClaims).toEqual(["1. Free airport pickup."]);
+  });
+
+  it("does not find a late campaign when the backward scan is too short and no override is given", async () => {
+    const receipt = await verifyReceipt(lateRequestId, {
+      rpcUrl: RPC,
+      address: emitter,
+      fromBlock: 0n,
+      maxRange: 7n,
+      campaignBackScanChunks: 1,
+      campaignScanChunks: 2,
+    });
+
+    expect(receipt.campaign.claims).toBeNull();
+  });
+
+  it("starts the campaign scan at campaignFromBlock", async () => {
+    const head = await client.getBlockNumber();
+    const receipt = await verifyReceipt(lateRequestId, {
+      rpcUrl: RPC,
+      address: emitter,
+      fromBlock: 0n,
+      maxRange: 7n,
+      campaignBackScanChunks: 1,
+      campaignFromBlock: head - 40n,
+    });
+
+    expect(receipt.campaign.claims).toBe(lateClaims);
   });
 
   it("reports an unknown requestId", async () => {
