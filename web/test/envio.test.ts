@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getPublisherStats, getRecentEvents, toIndexedEvent, toPublisherStats } from "../lib/envio";
+import { getPublisherIndex, getPublisherStats, toIndexedEvent, toPublisherStats } from "../lib/envio";
+import { LIVE_INDEX_RESPONSE, LIVE_PUBLISHER } from "./envio-fixtures";
 
 const PUBLISHER = "0x67435bD1FCd81D6c25C6546a86af0eF6887F72cb";
 
@@ -114,7 +115,7 @@ describe("response mapping", () => {
   });
 });
 
-describe("getPublisherStats / getRecentEvents", () => {
+describe("getPublisherStats", () => {
   it("queries ENVIO_GRAPHQL_URL with the checksummed address", async () => {
     vi.stubEnv("ENVIO_GRAPHQL_URL", "http://indexer.test/v1/graphql");
     const fetchMock = respondWith(PUBLISHER_RESPONSE);
@@ -128,29 +129,71 @@ describe("getPublisherStats / getRecentEvents", () => {
     expect(JSON.parse(String(init?.body)).variables).toEqual({ id: PUBLISHER });
   });
 
-  it("returns events newest first as sent, with the limit", async () => {
-    vi.stubEnv("ENVIO_GRAPHQL_URL", "");
-    const fetchMock = respondWith(EVENTS_RESPONSE);
-    vi.stubGlobal("fetch", fetchMock);
-
-    const events = await getRecentEvents(PUBLISHER, 5);
-
-    expect(events?.map((e) => e.kind)).toEqual(["click", "impression"]);
-    expect(fetchMock.mock.calls[0]![0]).toBe("http://localhost:8080/v1/graphql");
-    expect(JSON.parse(String(fetchMock.mock.calls[0]![1]?.body)).variables).toEqual({ id: PUBLISHER, limit: 5 });
-  });
-
   it("returns null when the indexer is down, errors or the address is invalid", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => Promise.reject(new TypeError("fetch failed"))));
     expect(await getPublisherStats(PUBLISHER)).toBeNull();
-    expect(await getRecentEvents(PUBLISHER)).toBeNull();
+    expect(await getPublisherIndex(PUBLISHER)).toBeNull();
 
     vi.stubGlobal("fetch", respondWith({ errors: [{ message: "field not found" }] }));
     expect(await getPublisherStats(PUBLISHER)).toBeNull();
+    expect(await getPublisherIndex(PUBLISHER)).toBeNull();
 
     vi.stubGlobal("fetch", respondWith({}, 500));
-    expect(await getRecentEvents(PUBLISHER)).toBeNull();
+    expect(await getPublisherIndex(PUBLISHER)).toBeNull();
 
     expect(await getPublisherStats("not-an-address")).toBeNull();
+    expect(await getPublisherIndex("not-an-address")).toBeNull();
+  });
+});
+
+describe("getPublisherIndex", () => {
+  it("returns stats, events newest first and the indexed block range", async () => {
+    vi.stubEnv("ENVIO_GRAPHQL_URL", "");
+    const fetchMock = respondWith(LIVE_INDEX_RESPONSE);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const index = await getPublisherIndex(LIVE_PUBLISHER.toLowerCase());
+
+    expect(index?.stats).toMatchObject({ address: LIVE_PUBLISHER, released: 5, rejected: 2, earned: 530_000n, trustScoreBps: 7143 });
+    expect(index?.events).toHaveLength(7);
+    expect(index?.events[0]).toMatchObject({ requestId: "req_ECxfg5BC2dgs1C9xg04VKX", status: "rejected", wasDisputed: true });
+    expect(index?.events.map((e) => e.loggedAt)).toEqual([...index!.events.map((e) => e.loggedAt)].sort((a, b) => b - a));
+    expect(index).toMatchObject({ fromBlock: 70478614, toBlock: 70496822 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]![0]).toBe("http://localhost:8080/v1/graphql");
+    expect(JSON.parse(String(fetchMock.mock.calls[0]![1]?.body)).variables).toEqual({
+      id: LIVE_PUBLISHER,
+      limit: 1000,
+      offset: 0,
+    });
+  });
+
+  it("pages until a short page", async () => {
+    const row = LIVE_INDEX_RESPONSE.data.ClearingEvent[0];
+    const page = (n: number) => ({
+      data: {
+        ...LIVE_INDEX_RESPONSE.data,
+        ClearingEvent: Array.from({ length: n }, (_, i) => ({ ...row, id: `0x${i.toString(16).padStart(64, "0")}` })),
+      },
+    });
+    const fetchMock = vi
+      .fn(async (_url: string, _init?: RequestInit) => new Response(JSON.stringify(page(3))))
+      .mockResolvedValueOnce(new Response(JSON.stringify(page(1000))));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const index = await getPublisherIndex(LIVE_PUBLISHER);
+
+    expect(index?.events).toHaveLength(1003);
+    expect(fetchMock.mock.calls.map(([, init]) => JSON.parse(String(init?.body)).variables.offset)).toEqual([0, 1000]);
+  });
+
+  it("returns an empty event list for a publisher with no indexed activity", async () => {
+    vi.stubGlobal(
+      "fetch",
+      respondWith({ data: { Publisher_by_pk: null, ClearingEvent: [], chain_metadata: LIVE_INDEX_RESPONSE.data.chain_metadata } }),
+    );
+    const index = await getPublisherIndex(PUBLISHER);
+    expect(index?.events).toEqual([]);
+    expect(index?.stats.trustScoreBps).toBeNull();
   });
 });

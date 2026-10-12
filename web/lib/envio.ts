@@ -78,11 +78,24 @@ const PUBLISHER_QUERY = `query PublisherStats($id: String!) {
   }
 }`;
 
-const EVENTS_QUERY = `query RecentEvents($id: String!, $limit: Int!) {
-  ClearingEvent(where: { publisher_id: { _eq: $id } }, order_by: { loggedAt: desc }, limit: $limit) {
+const INDEX_QUERY = `query PublisherIndex($id: String!, $limit: Int!, $offset: Int!) {
+  Publisher_by_pk(id: $id) {
+    id impressions clicks pending disputed released rejected earned trustScoreBps lastActivityAt
+  }
+  ClearingEvent(
+    where: { publisher_id: { _eq: $id } }
+    order_by: [{ loggedAt: desc }, { id: asc }]
+    limit: $limit
+    offset: $offset
+  ) {
     id requestId campaign_id kind price status wasDisputed paid loggedAt loggedTx settledAt settledTx paidTx
   }
+  chain_metadata { start_block latest_processed_block }
 }`;
+
+/** Events fetched per request, and the most requests one index read makes. */
+const PAGE_SIZE = 1_000;
+const MAX_PAGES = 20;
 
 export function envioUrl(): string {
   return process.env.ENVIO_GRAPHQL_URL || DEFAULT_ENVIO_GRAPHQL_URL;
@@ -165,13 +178,48 @@ export async function getPublisherStats(address: string): Promise<PublisherStats
   }
 }
 
-/** The publisher's latest events, newest first; null when the indexer is unreachable. */
-export async function getRecentEvents(address: string, limit = 20): Promise<IndexedEvent[] | null> {
+export interface ChainMetadataRow {
+  start_block: number;
+  latest_processed_block: number | null;
+}
+
+interface IndexPage {
+  Publisher_by_pk: PublisherRow | null;
+  ClearingEvent: ClearingEventRow[];
+  chain_metadata: ChainMetadataRow[];
+}
+
+/** Everything the indexer holds for one publisher. */
+export interface PublisherIndex {
+  stats: PublisherStats;
+  /** All of the publisher's events, newest first. */
+  events: IndexedEvent[];
+  /** First and last block the indexer has processed. */
+  fromBlock: number;
+  toBlock: number;
+}
+
+/** Stats, every event and the indexed block range for a publisher; null when the indexer is unreachable. */
+export async function getPublisherIndex(address: string): Promise<PublisherIndex | null> {
   if (!isAddress(address, { strict: false })) return null;
   const id = getAddress(address);
   try {
-    const data = await query<{ ClearingEvent: ClearingEventRow[] }>(EVENTS_QUERY, { id, limit });
-    return data.ClearingEvent.map(toIndexedEvent);
+    const first = await query<IndexPage>(INDEX_QUERY, { id, limit: PAGE_SIZE, offset: 0 });
+    const rows = [...first.ClearingEvent];
+    let last = first.ClearingEvent.length;
+    for (let page = 1; page < MAX_PAGES && last === PAGE_SIZE; page++) {
+      const next = await query<IndexPage>(INDEX_QUERY, { id, limit: PAGE_SIZE, offset: page * PAGE_SIZE });
+      rows.push(...next.ClearingEvent);
+      last = next.ClearingEvent.length;
+    }
+    const chain = first.chain_metadata[0];
+    const fromBlock = Number(chain?.start_block ?? 0);
+    return {
+      stats: toPublisherStats(id, first.Publisher_by_pk),
+      events: rows.map(toIndexedEvent),
+      fromBlock,
+      toBlock: Number(chain?.latest_processed_block ?? fromBlock),
+    };
   } catch {
     return null;
   }
