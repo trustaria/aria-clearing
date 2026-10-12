@@ -26,14 +26,27 @@ const ANSWER_SYSTEM = [
 ].join(" ");
 
 const PICK_SYSTEM = [
-  "You decide whether one sponsored campaign fits a user's question. Reply with a JSON object only:",
-  '{"slug": string | null, "rationale": string, "claimRefs": number[]}.',
-  "Pick a campaign only when the user is planning, buying, booking or choosing something that campaign directly offers.",
-  'For informational, factual, technical or general questions reply {"slug": null, "rationale": "", "claimRefs": []}.',
-  `The rationale is one sentence of at most ${MAX_RATIONALE - 20} characters, written to the user,`,
-  "that states only facts found in the chosen campaign's numbered claims: no other facts, no prices, no superlatives.",
-  "claimRefs lists the numbers of the claims the rationale relies on.",
-].join(" ");
+  "You choose at most one sponsored card to show next to an AI assistant's answer, as a careful ad network would.",
+  "Reply with one JSON object only, keys in this order:",
+  '{"intent": "commercial" | "informational" | "sensitive", "slug": string | null, "claimRefs": number[], "rationale": string}',
+  "",
+  "intent:",
+  "- commercial: the user is choosing, comparing, planning, booking, or deciding whether to buy or try something,",
+  "and a product or service in the list would genuinely help with that decision. Examples: what should I book,",
+  "which X should I buy, is an e-bike worth it, best notes app for meetings, gift ideas, where should we stay,",
+  "are online tutors worth it, recommend a meal kit.",
+  "- informational: how-to, explanations, facts, comparisons of concepts, troubleshooting, customer support,",
+  "returns, or anything no listed campaign helps with.",
+  "- sensitive: health, symptoms, medicine, mental health, money, investing, debt, legal or personal crisis.",
+  "No card for these, even when a campaign looks related.",
+  "",
+  "slug: for a commercial question, the one campaign whose offer best matches what the user wants to get or do;",
+  "judge by the need, not by shared words. Otherwise null.",
+  "claimRefs: the 1 or 2 claim numbers of that campaign that matter most for this question; [] when slug is null.",
+  `rationale: one natural sentence to the user, at most ${MAX_RATIONALE - 30} characters, on why this offer fits`,
+  "their question, stating only facts from the cited claims. No other facts, prices or superlatives,",
+  'no claim numbers or brackets in the sentence. "" when slug is null.',
+].join("\n");
 
 /** The active model: KIMI when KIMI_API_KEY is set, otherwise the dev-only stub. */
 export function activeModel(): ModelName | null {
@@ -90,8 +103,16 @@ export async function* streamAnswer(
 
 export type PickReply = { raw: unknown; usage?: CompletionUsage };
 
-/** One pick request: the parsed JSON reply and its token usage. Throws on unparseable output. */
-export async function requestPick(question: string, campaigns: Campaign[], signal: AbortSignal): Promise<PickReply> {
+/**
+ * One pick request: the parsed JSON reply and its token usage. Throws on unparseable output.
+ * `maxRetries` overrides the client's automatic retries on 429 and 5xx.
+ */
+export async function requestPick(
+  question: string,
+  campaigns: Campaign[],
+  signal: AbortSignal,
+  maxRetries?: number,
+): Promise<PickReply> {
   const user = `Campaigns:\n\n${describeCampaigns(campaigns)}\n\nQuestion: ${question}`;
   const res = await kimiClient().chat.completions.create(
     kimiBody({
@@ -102,7 +123,7 @@ export async function requestPick(question: string, campaigns: Campaign[], signa
         { role: "user" as const, content: user },
       ],
     }),
-    { signal },
+    { signal, maxRetries },
   );
   return { raw: parsePickJson(res.choices[0]?.message?.content ?? ""), usage: res.usage };
 }

@@ -1,4 +1,5 @@
 import { writeFileSync } from "node:fs";
+import { RateLimitError } from "openai";
 import { it } from "vitest";
 import { campaigns } from "../lib/campaigns";
 import { kimiModel, requestPick, streamAnswer, type PickReply } from "../lib/kimi";
@@ -14,6 +15,7 @@ const RUNS = Number(process.env.EVAL_RUNS ?? 3);
 const INTERVAL_MS = Number(process.env.EVAL_INTERVAL_MS ?? 21000);
 const ONLY = (process.env.EVAL_ONLY ?? "").split(",").filter(Boolean);
 const CALL_TIMEOUT_MS = 20000;
+const RATE_LIMIT_RETRIES = 4;
 
 // USD per 1M tokens for kimi-k2.6 (platform.kimi.ai pricing page).
 const PRICE_INPUT = 0.95;
@@ -41,6 +43,7 @@ type Row = {
 };
 
 let lastStart = 0;
+let rateLimited = 0;
 
 async function paced<T>(call: () => Promise<T>): Promise<T> {
   const wait = lastStart + INTERVAL_MS - Date.now();
@@ -62,13 +65,27 @@ function cachedOf(usage: PickReply["usage"]): number {
   return u?.prompt_tokens_details?.cached_tokens ?? u?.cached_tokens ?? 0;
 }
 
+/** A paced pick call; a 429 waits for the next slot and retries, so latency covers one clean request. */
+async function pacedPick(question: string) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await paced(async () => {
+        const start = Date.now();
+        const reply = await requestPick(question, campaigns, AbortSignal.timeout(CALL_TIMEOUT_MS), 0);
+        return { ...reply, ms: Date.now() - start };
+      });
+    } catch (error) {
+      if (!(error instanceof RateLimitError) || attempt >= RATE_LIMIT_RETRIES) throw error;
+      rateLimited++;
+    }
+  }
+}
+
 async function runPick(c: EvalCase, run: number): Promise<Row> {
   const start = Date.now();
   const base = { id: c.id, kind: c.kind, expect: c.expect, run };
   try {
-    const signal = AbortSignal.timeout(CALL_TIMEOUT_MS);
-    const { raw, usage } = await requestPick(c.question, campaigns, signal);
-    const ms = Date.now() - start;
+    const { raw, usage, ms } = await pacedPick(c.question);
     const r = (raw ?? {}) as Record<string, unknown>;
     const rawSlug = typeof r.slug === "string" ? r.slug : null;
     const campaign = campaigns.find((x) => x.slug === rawSlug);
@@ -137,7 +154,9 @@ function report(rows: Row[]) {
   console.log("\nRationales:");
   for (const r of picks) console.log(`  [${r.rationale.length}] ${r.rawSlug} ${JSON.stringify(r.claimRefs)}: ${r.rationale}`);
 
-  console.log(`\nKIMI model ${kimiModel()}, ${rows.length} calls, ${rows.length - ok.length} errors`);
+  console.log(
+    `\nKIMI model ${kimiModel()}, ${rows.length} calls, ${rows.length - ok.length} errors, ${rateLimited} rate-limited retries`,
+  );
   for (const r of rows.filter((x) => x.error)) console.log(`  error ${r.id}#${r.run}: ${r.error}`);
   console.log(`Commercial picks correct  ${pct(correct, commercial.length)}`);
   console.log(`Non-commercial picked     ${pct(falsePicks, nonCommercial.length)}`);
@@ -185,7 +204,7 @@ it("KIMI pick eval", async () => {
   const rows: Row[] = [];
   for (let run = 1; run <= RUNS; run++) {
     for (const c of cases) {
-      const row = await paced(() => runPick(c, run));
+      const row = await runPick(c, run);
       rows.push(row);
       const mark = row.error ? `error ${row.error}` : (row.slug ?? "-");
       console.log(`  ${run} ${c.id.padEnd(26)} ${String(row.ms).padStart(5)} ms  ${mark}`);
