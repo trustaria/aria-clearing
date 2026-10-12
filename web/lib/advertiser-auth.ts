@@ -29,7 +29,8 @@ export async function requireAdvertiser(
   try {
     const { userId } = await verify(token);
     return userId ? { userId } : unauthorized();
-  } catch {
+  } catch (err) {
+    console.warn(`advertiser token rejected: ${err instanceof Error ? err.message : String(err)}`);
     return unauthorized();
   }
 }
