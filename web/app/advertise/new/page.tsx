@@ -16,7 +16,7 @@ export default function NewCampaignPage() {
 
   return (
     <main className="min-h-screen bg-[#faf9f6] text-stone-900">
-      <div className={`mx-auto px-4 py-10 sm:px-6 sm:py-14 ${signedIn ? "max-w-5xl" : "max-w-3xl sm:py-16"}`}>
+      <div className={`mx-auto px-4 py-10 sm:px-6 sm:py-14 lg:px-8 ${signedIn ? "max-w-6xl" : "max-w-3xl sm:py-16"}`}>
         {!signedIn ? (
           <SignIn ready={ready} onLogin={() => login({ loginMethods: ["email"] })} />
         ) : (

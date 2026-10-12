@@ -368,6 +368,8 @@ function ClaimsStep({
           {DRAFT_FAILED}
         </p>
       )}
+      {/* Claims and preview side by side on wide screens, stacked below. */}
+      <div className="space-y-6 lg:grid lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] lg:items-start lg:gap-8 lg:space-y-0">
       <div className={`${CARD} space-y-3`}>
         {drafting ? (
           <SkeletonRows />
@@ -396,7 +398,7 @@ function ClaimsStep({
           </>
         )}
       </div>
-      <div className="space-y-2">
+      <div className="space-y-2 lg:sticky lg:top-6">
         <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-stone-500">Preview</h2>
         {drafting ? (
           <div className="h-28 animate-pulse rounded-xl border border-stone-200 bg-white" />
@@ -405,6 +407,7 @@ function ClaimsStep({
         )}
         <p className={HELP}>Example only: the real sentence is written per question.</p>
         <p className={HELP}>Keep claims factual: no prices you might change, no &ldquo;best&rdquo;, no comparisons.</p>
+      </div>
       </div>
       <Actions>
         <button type="button" onClick={onBack} className={SECONDARY}>
@@ -928,9 +931,9 @@ export default function Wizard({
   const budget = budgetCents(state) ?? 0;
 
   return (
-    <div ref={top} className="grid scroll-mt-6 gap-8 md:grid-cols-[13rem_minmax(0,1fr)] md:gap-12">
+    <div ref={top} className="grid scroll-mt-6 gap-8 md:grid-cols-[12rem_minmax(0,1fr)] md:gap-10">
       <Rail step={step} state={state} onGo={(s) => !submitting && go(s)} />
-      <div className="min-w-0 max-w-xl space-y-3">
+      <div className={`min-w-0 space-y-3 ${step === 2 ? "max-w-xl lg:max-w-none" : "max-w-xl"}`}>
         <p className="text-xs font-medium uppercase tracking-wider text-stone-500 md:hidden">Step {step} of 4</p>
         {step === 1 && (
           <ProductStep
