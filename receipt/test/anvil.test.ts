@@ -96,9 +96,33 @@ describe.skipIf(!hasFoundry)("verifyReceipt against anvil", () => {
     expect(receipt.events[0].status).toBe("released");
     expect(receipt.events[0].citedClaims).toEqual(["1. Kids under 6 stay free."]);
     expect(receipt.events[0].eventId).toBe(eventIdOf(requestId, Kind.Impression));
+    expect(receipt.events[0].settledTx).toBeDefined();
+    expect(receipt.campaign.claims).toBe(claims);
+  });
+
+  it("keeps the view's status when the settlement tx is outside the scanned window", async () => {
+    const receipt = await verifyReceipt(requestId, {
+      rpcUrl: RPC,
+      address: emitter,
+      fromBlock: 0n,
+      maxRange: 7n,
+      settlementScanChunks: 1,
+    });
+
+    expect(receipt.ok).toBe(true);
+    expect(receipt.events[0].status).toBe("released");
+    expect(receipt.events[0].settledTx).toBeUndefined();
+  });
+
+  it("verifies without a fromBlock, leaving the claims text unavailable", async () => {
+    const receipt = await verifyReceipt(requestId, { rpcUrl: RPC, address: emitter, maxRange: 7n });
+
+    expect(receipt.ok).toBe(true);
+    expect(receipt.campaign.claims).toBeNull();
+    expect(receipt.campaign.claimsMatch).toBe(true);
   });
 
   it("reports an unknown requestId", async () => {
-    await expect(verifyReceipt("nope", { rpcUrl: RPC, address: emitter, fromBlock: 0n })).rejects.toThrow(/No EventLogged/);
+    await expect(verifyReceipt("nope", { rpcUrl: RPC, address: emitter })).rejects.toThrow(/No event found/);
   });
 });

@@ -4,8 +4,10 @@ import { claimsHash, eventIdOf, formatClaims, Kind, requestKeyOf } from "../src/
 import {
   buildReceipt,
   chunkRange,
+  findBlockAtTimestamp,
   type CampaignCreatedData,
   type EventLoggedData,
+  type EventView,
   type ReceiptInput,
 } from "../src/verify";
 
@@ -206,5 +208,89 @@ describe("chunkRange", () => {
 
   it("returns nothing for an empty range", () => {
     expect(chunkRange(10n, 9n, 100n)).toEqual([]);
+  });
+});
+
+describe("buildReceipt with on-chain views", () => {
+  const view: EventView = {
+    status: 3,
+    campaignId,
+    publisher,
+    price: 10_000n,
+    loggedAt: 1_000n,
+  };
+
+  it("takes status from the view when no settlement log was found", () => {
+    const receipt = buildReceipt(requestId, input({ views: { [impressionId]: view } }));
+
+    expect(receipt.events[0].status).toBe("released");
+    expect(receipt.events[0].settledTx).toBeUndefined();
+    expect(receipt.ok).toBe(true);
+  });
+
+  it("prefers the view over a log-derived status", () => {
+    const receipt = buildReceipt(
+      requestId,
+      input({
+        views: { [impressionId]: { ...view, status: 2 } },
+        settled: [{ eventId: impressionId, outcome: 3, blockNumber: 130n, txHash: "0x51" }],
+      }),
+    );
+
+    expect(receipt.events[0].status).toBe("disputed");
+  });
+
+  it("flags a view that disagrees with the logged event", () => {
+    const receipt = buildReceipt(requestId, input({ views: { [impressionId]: { ...view, price: 1n } } }));
+
+    expect(receipt.events[0].viewMatches).toBe(false);
+    expect(receipt.ok).toBe(false);
+  });
+
+  it("verifies the claims hash from the view when the claims text is unavailable", () => {
+    const campaign = campaignLog({ claims: null, blockNumber: null, txHash: null });
+
+    const receipt = buildReceipt(requestId, input({ campaign, events: [eventLog({ claimRefs: [] })] }));
+
+    expect(receipt.campaign.claims).toBeNull();
+    expect(receipt.campaign.claimsMatch).toBeNull();
+    expect(receipt.events[0].citedClaims).toEqual([]);
+    expect(receipt.ok).toBe(true);
+    expect(receipt.lifecycle.map((step) => step.stage)).toEqual(["logged"]);
+  });
+
+  it("flags an emitted claimsHash that differs from the one the view reports", () => {
+    const campaign = campaignLog({ claims: null, claimsHash: keccak256(toBytes("something else")) });
+
+    const receipt = buildReceipt(requestId, input({ campaign, claimsHashOnChain: claimsHash(claims) }));
+
+    expect(receipt.campaign.claimsMatch).toBe(false);
+  });
+});
+
+describe("findBlockAtTimestamp", () => {
+  // One block every 0.4 s: two blocks per second, then three.
+  const timestampOf = async (block: bigint) => 1_000n + (block * 2n) / 5n;
+
+  it("finds the first block whose timestamp reaches the target", async () => {
+    const block = await findBlockAtTimestamp(timestampOf, 0n, 10_000n, 1_100n);
+
+    expect(await timestampOf(block)).toBeGreaterThanOrEqual(1_100n);
+    expect(await timestampOf(block - 1n)).toBeLessThan(1_100n);
+  });
+
+  it("uses logarithmically many lookups", async () => {
+    let calls = 0;
+    await findBlockAtTimestamp(async (b) => (calls++, timestampOf(b)), 0n, 100_000_000n, 1_000_000n);
+
+    expect(calls).toBeLessThanOrEqual(30);
+  });
+
+  it("returns the lower bound when the target predates it", async () => {
+    expect(await findBlockAtTimestamp(timestampOf, 50n, 100n, 0n)).toBe(50n);
+  });
+
+  it("returns the upper bound when the target is later than every block", async () => {
+    expect(await findBlockAtTimestamp(timestampOf, 0n, 100n, 9_999n)).toBe(100n);
   });
 });

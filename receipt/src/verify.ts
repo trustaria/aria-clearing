@@ -14,10 +14,17 @@ import { claimsHash, eventIdOf, normalizeRationale, requestKeyOf, Kind } from ".
 /** Monad public RPCs reject eth_getLogs spans wider than 100 blocks. */
 export const MAX_LOG_RANGE = 100n;
 const DEFAULT_CONCURRENCY = 8;
+const DEFAULT_CAMPAIGN_SCAN_CHUNKS = 50;
+const DEFAULT_SETTLEMENT_SCAN_CHUNKS = 30;
+/** Chunks searched on each side of the block found for an event's timestamp. */
+const LOGGED_WINDOW_CHUNKS = 2n;
 
-// Status enum values emitted in EventSettled.outcome.
-const OUTCOME_RELEASED = 3;
-const OUTCOME_REJECTED = 4;
+// Status enum values (IAriaClearing.Status).
+const STATUS_NONE = 0;
+const STATUS_LOGGED = 1;
+const STATUS_DISPUTED = 2;
+const STATUS_RELEASED = 3;
+const STATUS_REJECTED = 4;
 
 export type EventStatus = "logged" | "disputed" | "released" | "rejected";
 export type LifecycleStage = "campaign" | "logged" | "disputed" | "settled";
@@ -27,11 +34,14 @@ interface Located {
   txHash: Hex;
 }
 
-export interface CampaignCreatedData extends Located {
+export interface CampaignCreatedData {
   campaignId: Hex;
   advertiser: Address;
-  claims: string;
+  /** Claims text from CampaignCreated; null when the log was not found. */
+  claims: string | null;
   claimsHash: Hex;
+  blockNumber: bigint | null;
+  txHash: Hex | null;
 }
 
 export interface EventLoggedData extends Located {
@@ -57,9 +67,24 @@ export interface EventSettledData extends Located {
   outcome: number;
 }
 
+/** State of one event from the contract's clearingEvent view. */
+export interface EventView {
+  /** Status enum value: 0 None, 1 Logged, 2 Disputed, 3 Released, 4 Rejected. */
+  status: number;
+  campaignId: Hex;
+  publisher: Address;
+  price: bigint;
+  /** Block timestamp at which the event was logged. */
+  loggedAt: bigint;
+}
+
 export interface ReceiptInput {
   campaign: CampaignCreatedData;
+  /** claimsHash from the contract's campaign view. */
+  claimsHashOnChain?: Hex;
   events: EventLoggedData[];
+  /** Views by eventId; when present, status comes from the view rather than from logs. */
+  views?: Record<Hex, EventView>;
   disputed: EventDisputedData[];
   settled: EventSettledData[];
 }
@@ -75,16 +100,20 @@ export interface ReceiptEvent {
   /** Emitted rationale hashes to the emitted rationaleHash and is already trimmed and NFC. */
   rationaleMatches: boolean;
   claimRefs: number[];
-  /** Claim lines (as numbered in the claims text) the rationale cites. */
+  /** Claim lines (as numbered in the claims text) the rationale cites; empty when the claims text is unavailable. */
   citedClaims: string[];
-  /** Every claimRef points at an existing claim line. */
+  /** Every claimRef points at an existing claim line (true when the claims text is unavailable). */
   claimRefsValid: boolean;
+  /** The view's campaign, publisher and price equal the logged event (true when no view was read). */
+  viewMatches: boolean;
   /** The event's campaign is the campaign in this receipt. */
   campaignMatches: boolean;
   price: bigint;
   status: EventStatus;
   loggedTx: Hex;
-  settledTx: Hex | null;
+  /** Undefined when no matching log was found in the scanned window. */
+  disputedTx?: Hex;
+  settledTx?: Hex;
 }
 
 export interface LifecycleStep extends Located {
@@ -99,32 +128,56 @@ export interface Receipt {
   campaign: {
     campaignId: Hex;
     advertiser: Address;
-    claims: string;
+    /** Null when the CampaignCreated log was not found within the scan bound. */
+    claims: string | null;
     claimsHash: Hex;
-    /** keccak256(claims) equals the emitted claimsHash. */
-    claimsMatch: boolean;
-    createdTx: Hex;
+    /**
+     * Claims text hashes to claimsHash and the emitted hash equals the on-chain one.
+     * Null when neither comparison was possible.
+     */
+    claimsMatch: boolean | null;
+    createdTx: Hex | null;
   };
   events: ReceiptEvent[];
   lifecycle: LifecycleStep[];
 }
 
+function statusFromCode(code: number): EventStatus | undefined {
+  if (code === STATUS_LOGGED) return "logged";
+  if (code === STATUS_DISPUTED) return "disputed";
+  if (code === STATUS_RELEASED) return "released";
+  if (code === STATUS_REJECTED) return "rejected";
+  return undefined;
+}
+
 function statusOf(eventId: Hex, input: ReceiptInput): EventStatus {
+  const fromView = input.views?.[eventId] && statusFromCode(input.views[eventId].status);
+  if (fromView) return fromView;
   const settled = input.settled.find((s) => s.eventId === eventId);
-  if (settled?.outcome === OUTCOME_RELEASED) return "released";
-  if (settled?.outcome === OUTCOME_REJECTED) return "rejected";
+  if (settled?.outcome === STATUS_RELEASED) return "released";
+  if (settled?.outcome === STATUS_REJECTED) return "rejected";
   if (input.disputed.some((d) => d.eventId === eventId)) return "disputed";
   return "logged";
+}
+
+function claimsMatchOf(campaign: CampaignCreatedData, onChain?: Hex): boolean | null {
+  const checks: boolean[] = [];
+  if (campaign.claims !== null) checks.push(claimsHash(campaign.claims) === campaign.claimsHash);
+  if (onChain) checks.push(campaign.claimsHash === onChain);
+  return checks.length === 0 ? null : checks.every(Boolean);
 }
 
 /** Recomputes every hash from the decoded logs and assembles the receipt. Pure. */
 export function buildReceipt(requestId: string, input: ReceiptInput): Receipt {
   const { campaign } = input;
-  const claimLines = campaign.claims.split("\n");
-  const claimsMatch = claimsHash(campaign.claims) === campaign.claimsHash;
+  const claimLines = campaign.claims === null ? null : campaign.claims.split("\n");
+  const claimsMatch = claimsMatchOf(campaign, input.claimsHashOnChain);
 
   const events: ReceiptEvent[] = input.events.map((event) => {
-    const citedClaims = event.claimRefs.flatMap((ref) => (claimLines[ref - 1] === undefined ? [] : [claimLines[ref - 1]]));
+    const cited = claimLines
+      ? event.claimRefs.flatMap((ref) => (claimLines[ref - 1] === undefined ? [] : [claimLines[ref - 1]]))
+      : [];
+    const view = input.views?.[event.eventId];
     return {
       kind: event.kind,
       eventId: event.eventId,
@@ -136,18 +189,26 @@ export function buildReceipt(requestId: string, input: ReceiptInput): Receipt {
         keccak256(toBytes(event.rationale)) === event.rationaleHash &&
         normalizeRationale(event.rationale) === event.rationale,
       claimRefs: event.claimRefs,
-      citedClaims,
-      claimRefsValid: citedClaims.length === event.claimRefs.length,
+      citedClaims: cited,
+      claimRefsValid: claimLines === null || cited.length === event.claimRefs.length,
+      viewMatches:
+        view === undefined ||
+        (view.campaignId === event.campaignId && view.publisher === event.publisher && view.price === event.price),
       campaignMatches: event.campaignId === campaign.campaignId,
       price: event.price,
       status: statusOf(event.eventId, input),
       loggedTx: event.txHash,
-      settledTx: input.settled.find((s) => s.eventId === event.eventId)?.txHash ?? null,
+      disputedTx: input.disputed.find((d) => d.eventId === event.eventId)?.txHash,
+      settledTx: input.settled.find((s) => s.eventId === event.eventId)?.txHash,
     };
   });
 
+  const campaignStep: LifecycleStep[] =
+    campaign.blockNumber !== null && campaign.txHash !== null
+      ? [{ stage: "campaign", blockNumber: campaign.blockNumber, txHash: campaign.txHash }]
+      : [];
   const lifecycle: LifecycleStep[] = [
-    { stage: "campaign" as const, blockNumber: campaign.blockNumber, txHash: campaign.txHash },
+    ...campaignStep,
     ...input.events.map((e) => ({
       stage: "logged" as const,
       eventId: e.eventId,
@@ -164,16 +225,18 @@ export function buildReceipt(requestId: string, input: ReceiptInput): Receipt {
     ...input.settled.map((s) => ({
       stage: "settled" as const,
       eventId: s.eventId,
-      detail: s.outcome === OUTCOME_RELEASED ? "released" : s.outcome === OUTCOME_REJECTED ? "rejected" : String(s.outcome),
+      detail: s.outcome === STATUS_RELEASED ? "released" : s.outcome === STATUS_REJECTED ? "rejected" : String(s.outcome),
       blockNumber: s.blockNumber,
       txHash: s.txHash,
     })),
   ].sort((a, b) => (a.blockNumber < b.blockNumber ? -1 : a.blockNumber > b.blockNumber ? 1 : 0));
 
   const ok =
-    claimsMatch &&
+    claimsMatch !== false &&
     events.length > 0 &&
-    events.every((e) => e.eventIdMatches && e.rationaleMatches && e.claimRefsValid && e.campaignMatches);
+    events.every(
+      (e) => e.eventIdMatches && e.rationaleMatches && e.claimRefsValid && e.campaignMatches && e.viewMatches,
+    );
 
   return {
     requestId,
@@ -201,6 +264,26 @@ export function chunkRange(from: bigint, to: bigint, size: bigint): { fromBlock:
   return chunks;
 }
 
+/**
+ * Smallest block in [lo, hi] whose timestamp is at least `target` (hi when none is).
+ * Timestamps must be non-decreasing in the block number.
+ */
+export async function findBlockAtTimestamp(
+  getTimestamp: (block: bigint) => Promise<bigint>,
+  lo: bigint,
+  hi: bigint,
+  target: bigint,
+): Promise<bigint> {
+  let low = lo;
+  let high = hi;
+  while (low < high) {
+    const mid = (low + high) / 2n;
+    if ((await getTimestamp(mid)) >= target) high = mid;
+    else low = mid + 1n;
+  }
+  return low;
+}
+
 /** Runs `fn` over `items` with at most `limit` calls in flight, keeping result order. */
 async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const results = new Array<R>(items.length);
@@ -218,13 +301,20 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
 export interface VerifyOptions {
   rpcUrl: string;
   address: Address;
-  /** First block to scan, normally the deploy block. */
-  fromBlock: bigint;
-  /** Last block to scan; defaults to the chain head. */
+  /**
+   * Deploy block. Lower bound for the timestamp search and start of the CampaignCreated scan;
+   * without it the claims text is reported unavailable.
+   */
+  fromBlock?: bigint;
+  /** Upper bound for the timestamp search; defaults to the chain head. */
   toBlock?: bigint;
   /** Blocks per eth_getLogs call; defaults to the Monad public RPC limit. */
   maxRange?: bigint;
   concurrency?: number;
+  /** Chunks scanned forward from fromBlock for CampaignCreated. */
+  campaignScanChunks?: number;
+  /** Chunks scanned forward from the logged block for EventDisputed and EventSettled. */
+  settlementScanChunks?: number;
   /** Replaces the client built from rpcUrl (tests, shared clients). */
   client?: PublicClient;
 }
@@ -234,66 +324,143 @@ const eventLoggedEvent = getAbiItem({ abi: ariaClearingAbi, name: "EventLogged" 
 const eventDisputedEvent = getAbiItem({ abi: ariaClearingAbi, name: "EventDisputed" });
 const eventSettledEvent = getAbiItem({ abi: ariaClearingAbi, name: "EventSettled" });
 
-/** Reads the receipt's events from chain logs alone and verifies them. */
+/**
+ * Reads a receipt from the chain with plain RPC: state from the contract views, block
+ * located by timestamp search, then logs from small bounded windows.
+ */
 export async function verifyReceipt(requestId: string, options: VerifyOptions): Promise<Receipt> {
   const client: PublicClient =
     options.client ?? createPublicClient({ transport: http(options.rpcUrl, { retryCount: 5, retryDelay: 300 }) });
-  const { address, fromBlock } = options;
+  const { address } = options;
   const maxRange = options.maxRange ?? MAX_LOG_RANGE;
   const concurrency = options.concurrency ?? DEFAULT_CONCURRENCY;
-  const toBlock = options.toBlock ?? (await client.getBlockNumber());
+  const head = options.toBlock ?? (await client.getBlockNumber());
+  const floor = options.fromBlock ?? 0n;
 
-  const scan = async <T>(from: bigint, to: bigint, getChunk: (range: { fromBlock: bigint; toBlock: bigint }) => Promise<T[]>) =>
-    (await mapLimit(chunkRange(from, to, maxRange), concurrency, getChunk)).flat();
+  const scan = async <T>(
+    from: bigint,
+    to: bigint,
+    maxChunks: number,
+    getChunk: (range: { fromBlock: bigint; toBlock: bigint }) => Promise<T[]>,
+  ) => {
+    const chunks = chunkRange(from, to, maxRange).slice(0, maxChunks);
+    return (await mapLimit(chunks, concurrency, getChunk)).flat();
+  };
 
-  const loggedLogs = await scan(fromBlock, toBlock, (range) =>
-    client.getLogs({ address, event: eventLoggedEvent, args: { requestKey: requestKeyOf(requestId) }, ...range }),
+  // 1. Authoritative state from the views.
+  const kinds = [Kind.Impression, Kind.Click];
+  const eventIds = kinds.map((kind) => eventIdOf(requestId, kind));
+  const rawViews = await Promise.all(
+    eventIds.map((eventId) =>
+      client.readContract({ address, abi: ariaClearingAbi, functionName: "clearingEvent", args: [eventId] }),
+    ),
   );
-  if (loggedLogs.length === 0) throw new Error(`No EventLogged found for requestId "${requestId}"`);
+  const views: Record<Hex, EventView> = {};
+  rawViews.forEach((raw, i) => {
+    if (raw.status === STATUS_NONE) return;
+    views[eventIds[i]] = {
+      status: raw.status,
+      campaignId: raw.campaignId,
+      publisher: raw.publisher,
+      price: raw.price,
+      loggedAt: raw.loggedAt,
+    };
+  });
+  const knownIds = Object.keys(views) as Hex[];
+  if (knownIds.length === 0) throw new Error(`No event found on chain for requestId "${requestId}"`);
 
-  const events: EventLoggedData[] = loggedLogs.map((log) => ({
-    eventId: log.args.eventId!,
-    requestKey: log.args.requestKey!,
-    campaignId: log.args.campaignId!,
-    requestId: log.args.requestId!,
-    publisher: log.args.publisher!,
-    kind: log.args.kind! as Kind,
-    rationale: log.args.rationale!,
-    rationaleHash: log.args.rationaleHash!,
-    claimRefs: [...log.args.claimRefs!],
-    price: log.args.price!,
-    blockNumber: log.blockNumber,
-    txHash: log.transactionHash,
-  }));
+  // 2. Locate the logging blocks by timestamp and read EventLogged around them.
+  const timestamps = new Map<bigint, Promise<bigint>>();
+  const timestampOf = (block: bigint) => {
+    if (!timestamps.has(block)) timestamps.set(block, client.getBlock({ blockNumber: block }).then((b) => b.timestamp));
+    return timestamps.get(block)!;
+  };
+  const loggedBlocks = await Promise.all(
+    knownIds.map((id) => findBlockAtTimestamp(timestampOf, floor, head, views[id].loggedAt)),
+  );
+  const requestKey = requestKeyOf(requestId);
+  const windows = new Map<string, { fromBlock: bigint; toBlock: bigint }>();
+  for (const block of loggedBlocks) {
+    const fromBlock = block - LOGGED_WINDOW_CHUNKS * maxRange > floor ? block - LOGGED_WINDOW_CHUNKS * maxRange : floor;
+    const toBlock = block + LOGGED_WINDOW_CHUNKS * maxRange < head ? block + LOGGED_WINDOW_CHUNKS * maxRange : head;
+    windows.set(`${fromBlock}-${toBlock}`, { fromBlock, toBlock });
+  }
+  const loggedLogs = (
+    await Promise.all(
+      [...windows.values()].map((w) =>
+        scan(w.fromBlock, w.toBlock, Number.MAX_SAFE_INTEGER, (range) =>
+          client.getLogs({ address, event: eventLoggedEvent, args: { requestKey }, ...range }),
+        ),
+      ),
+    )
+  ).flat();
 
+  const seen = new Set<Hex>();
+  const events: EventLoggedData[] = [];
+  for (const log of loggedLogs) {
+    const eventId = log.args.eventId!;
+    if (seen.has(eventId)) continue;
+    seen.add(eventId);
+    events.push({
+      eventId,
+      requestKey: log.args.requestKey!,
+      campaignId: log.args.campaignId!,
+      requestId: log.args.requestId!,
+      publisher: log.args.publisher!,
+      kind: log.args.kind! as Kind,
+      rationale: log.args.rationale!,
+      rationaleHash: log.args.rationaleHash!,
+      claimRefs: [...log.args.claimRefs!],
+      price: log.args.price!,
+      blockNumber: log.blockNumber,
+      txHash: log.transactionHash,
+    });
+  }
+  const missing = knownIds.filter((id) => !seen.has(id));
+  if (missing.length > 0) throw new Error(`EventLogged not found near its logging block for ${missing.join(", ")}`);
+
+  // 3. Campaign: claims hash from the view, claims text from a bounded forward scan.
   const campaignId = events[0].campaignId;
   const firstLogged = events.reduce((min, e) => (e.blockNumber < min ? e.blockNumber : min), events[0].blockNumber);
-  const eventIds = events.map((e) => e.eventId);
+  const campaignView = await client.readContract({
+    address,
+    abi: ariaClearingAbi,
+    functionName: "campaign",
+    args: [campaignId],
+  });
 
+  const campaignScan =
+    options.fromBlock === undefined
+      ? Promise.resolve([])
+      : scan(floor, firstLogged, options.campaignScanChunks ?? DEFAULT_CAMPAIGN_SCAN_CHUNKS, (range) =>
+          client.getLogs({ address, event: campaignCreatedEvent, args: { campaignId }, ...range }),
+        );
+
+  // 4. Dispute and settlement transactions from a bounded forward scan.
+  const settlementChunks = options.settlementScanChunks ?? DEFAULT_SETTLEMENT_SCAN_CHUNKS;
   const [campaignLogs, disputedLogs, settledLogs] = await Promise.all([
-    scan(fromBlock, firstLogged, (range) =>
-      client.getLogs({ address, event: campaignCreatedEvent, args: { campaignId }, ...range }),
+    campaignScan,
+    scan(firstLogged, head, settlementChunks, (range) =>
+      client.getLogs({ address, event: eventDisputedEvent, args: { eventId: knownIds }, ...range }),
     ),
-    scan(firstLogged, toBlock, (range) =>
-      client.getLogs({ address, event: eventDisputedEvent, args: { eventId: eventIds }, ...range }),
-    ),
-    scan(firstLogged, toBlock, (range) =>
-      client.getLogs({ address, event: eventSettledEvent, args: { eventId: eventIds }, ...range }),
+    scan(firstLogged, head, settlementChunks, (range) =>
+      client.getLogs({ address, event: eventSettledEvent, args: { eventId: knownIds }, ...range }),
     ),
   ]);
-  if (campaignLogs.length === 0) throw new Error(`No CampaignCreated found for campaign ${campaignId}`);
 
   const created = campaignLogs[0];
   return buildReceipt(requestId, {
     campaign: {
-      campaignId: created.args.campaignId!,
-      advertiser: created.args.advertiser!,
-      claims: created.args.claims!,
-      claimsHash: created.args.claimsHash!,
-      blockNumber: created.blockNumber,
-      txHash: created.transactionHash,
+      campaignId,
+      advertiser: created?.args.advertiser ?? campaignView.advertiser,
+      claims: created?.args.claims ?? null,
+      claimsHash: created?.args.claimsHash ?? campaignView.claimsHash,
+      blockNumber: created?.blockNumber ?? null,
+      txHash: created?.transactionHash ?? null,
     },
+    claimsHashOnChain: campaignView.claimsHash,
     events,
+    views,
     disputed: disputedLogs.map((log) => ({
       eventId: log.args.eventId!,
       blockNumber: log.blockNumber,

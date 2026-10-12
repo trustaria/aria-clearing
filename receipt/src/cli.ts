@@ -21,8 +21,12 @@ export function formatReceipt(receipt: Receipt): string {
   const { campaign } = receipt;
   lines.push(`Receipt for ${receipt.requestId}`);
   lines.push(`Campaign ${campaign.campaignId} (advertiser ${campaign.advertiser})`);
-  lines.push(`  ${mark(campaign.claimsMatch)} claimsHash matches keccak256(claims)`);
-  for (const claim of campaign.claims.split("\n")) lines.push(`      ${claim}`);
+  if (campaign.claims === null) {
+    lines.push(`  ${mark(campaign.claimsMatch !== false)} claimsHash ${campaign.claimsHash} (claims text not found in the scanned blocks)`);
+  } else {
+    lines.push(`  ${mark(campaign.claimsMatch === true)} claimsHash matches keccak256(claims) and the on-chain campaign`);
+    for (const claim of campaign.claims.split("\n")) lines.push(`      ${claim}`);
+  }
 
   for (const event of receipt.events) {
     lines.push("");
@@ -33,6 +37,7 @@ export function formatReceipt(receipt: Receipt): string {
     lines.push(`  ${mark(event.claimRefsValid)} claimRefs ${JSON.stringify(event.claimRefs)} point at existing claims`);
     lines.push(`      rationale: ${event.rationale}`);
     for (const claim of event.citedClaims) lines.push(`      cites: ${claim}`);
+    lines.push(`  ${mark(event.viewMatches)} contract state agrees with the logged event`);
     lines.push(`      publisher ${event.publisher}, price ${event.price}`);
   }
 
@@ -65,12 +70,11 @@ async function main() {
   const address = values.address ?? deployment.address;
   if (!address || !isAddress(address)) throw new Error(`Missing or invalid --address (no deployments/10143.json). ${USAGE}`);
   const fromBlock = values["from-block"] ?? deployment.deployBlock;
-  if (fromBlock === undefined) throw new Error(`Missing --from-block (no deployments/10143.json). ${USAGE}`);
 
   const receipt = await verifyReceipt(requestId, {
     rpcUrl: values.rpc ?? DEFAULT_RPC,
     address,
-    fromBlock: BigInt(fromBlock),
+    fromBlock: fromBlock === undefined ? undefined : BigInt(fromBlock),
   });
   console.log(formatReceipt(receipt));
   process.exitCode = receipt.ok ? 0 : 1;
