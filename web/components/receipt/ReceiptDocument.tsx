@@ -1,4 +1,4 @@
-import type { CheckState, EventView, ReceiptView, StepView, Tone } from "../../app/receipt/view-model";
+import type { CheckState, EventView, ReceiptView, SeenView, StepView, Tone } from "../../app/receipt/view-model";
 import { shortAddress, shortHash } from "../../lib/format";
 import CopyCommand from "./CopyCommand";
 
@@ -105,6 +105,45 @@ function EventLifecycle({ event }: { event: EventView }) {
   );
 }
 
+const SEEN_STYLE: Record<SeenView["state"], { mark: string; box: string; markClass: string; title: string }> = {
+  match: {
+    mark: "✓",
+    box: "bg-emerald-50 ring-emerald-200",
+    markClass: "bg-emerald-600 text-white",
+    title: "text-emerald-900",
+  },
+  mismatch: { mark: "✗", box: "bg-rose-50 ring-rose-200", markClass: "bg-rose-600 text-white", title: "text-rose-900" },
+  absent: { mark: "–", box: "bg-stone-100/70 ring-stone-200", markClass: "bg-stone-300 text-white", title: "text-stone-700" },
+};
+
+/** Whether the card's sentence and claims are the ones logged on chain. */
+export function SeenBanner({ seen }: { seen: SeenView }) {
+  const style = SEEN_STYLE[seen.state];
+  return (
+    <div data-seen={seen.state} className={`flex items-start gap-3 rounded-xl px-4 py-3 ring-1 ${style.box}`}>
+      <span
+        aria-hidden
+        className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${style.markClass}`}
+      >
+        {style.mark}
+      </span>
+      <div className="space-y-1">
+        <p className={`text-[15px] font-medium leading-snug ${style.title}`}>{seen.title}</p>
+        <p className="text-sm leading-relaxed text-stone-600">{seen.detail}</p>
+        {seen.differences.length > 0 && (
+          <ul className="space-y-0.5 pt-1 font-mono text-xs text-rose-800">
+            {seen.differences.map((d) => (
+              <li key={d.label}>
+                {d.label}: card {d.card} · logged {d.logged}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /** `trust` is an optional footer line, rendered in place so it can stream in after the receipt. */
 export default function ReceiptDocument({ view, trust }: { view: ReceiptView; trust?: React.ReactNode }) {
   return (
@@ -118,22 +157,24 @@ export default function ReceiptDocument({ view, trust }: { view: ReceiptView; tr
           <StatusPill tone={view.status.tone} label={view.status.label} />
         </div>
 
+        <SeenBanner seen={view.seen} />
+
         <figure>
           <blockquote className="font-serif text-[1.75rem] leading-snug text-stone-900 sm:text-[2rem]">
             “{view.sentence}”
           </blockquote>
           <figcaption className="mt-4 text-sm text-stone-500">
-            The exact sponsored sentence shown in the answer · {view.totalPrice} USDC · {view.status.note}
+            The sponsored sentence logged on Monad · {view.totalPrice} USDC · {view.status.note}
           </figcaption>
         </figure>
 
         <p
           className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium ${
-            view.ok ? "bg-emerald-50 text-emerald-800" : "bg-rose-50 text-rose-800"
+            view.consistent ? "bg-stone-100 text-stone-700" : "bg-rose-50 text-rose-800"
           }`}
         >
-          <span aria-hidden>{view.ok ? "✓" : "✗"}</span>
-          {view.ok ? "Hashes match the chain" : "Mismatch: this receipt does not match the chain"}
+          <span aria-hidden>{view.consistent ? "✓" : "✗"}</span>
+          {view.consistent ? "Logged record is internally consistent" : "Logged record is not internally consistent"}
         </p>
       </header>
 
@@ -169,7 +210,11 @@ export default function ReceiptDocument({ view, trust }: { view: ReceiptView; tr
         )}
       </Section>
 
-      <Section title="Checks" aside="recomputed from Monad">
+      <Section title="Internal consistency" aside="recomputed from Monad's logs">
+        <p className="mb-2 max-w-prose text-sm leading-relaxed text-stone-500">
+          The contract computes these hashes itself when it logs, so they hold for any logged event. They show the
+          record agrees with itself, not that it is what you saw; the line at the top checks that.
+        </p>
         <ul className="divide-y divide-stone-100">
           {view.checks.map((check) => (
             <li key={check.key} className="flex items-start gap-4 py-3">
@@ -199,7 +244,11 @@ export default function ReceiptDocument({ view, trust }: { view: ReceiptView; tr
 
       <Section title="Verify it yourself">
         <CopyCommand command={view.verifyCommand} />
-        <p className="mt-3 text-sm text-stone-500">Reads the contract over a public RPC. No Aria server involved.</p>
+        <p className="mt-3 text-sm text-stone-500">
+          Reads the contract over a public RPC. No Aria server involved. Add{" "}
+          <code className="font-mono text-xs text-stone-700">--sentence &quot;&lt;text you saw&gt;&quot;</code> to check
+          the sentence against the chain yourself.
+        </p>
       </Section>
 
       <footer className="flex flex-wrap gap-x-6 gap-y-2 border-t border-stone-200 pt-6 text-xs text-stone-500">

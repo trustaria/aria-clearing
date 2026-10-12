@@ -1,6 +1,9 @@
-import { Kind, type Receipt, type ReceiptEvent } from "@aria-clearing/receipt";
+import { Kind, withExpected, type Receipt, type ReceiptEvent } from "@aria-clearing/receipt";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { STATUS, toReceiptView, trustLine } from "../app/receipt/view-model";
+import { expectedFromQuery, STATUS, toReceiptView, trustLine } from "../app/receipt/view-model";
+import ReceiptDocument from "../components/receipt/ReceiptDocument";
 
 const CONTRACT = "0xeCED10b07169857eE91441BBDdeb9653bF7cC041";
 const PUBLISHER = "0xD2D508841C0C99D31C78C03C94338D88Ca19416b";
@@ -39,6 +42,8 @@ function receipt(overrides: Partial<Receipt> = {}, events: ReceiptEvent[] = [eve
   return {
     requestId: "req_fixture",
     ok: true,
+    consistent: true,
+    seen: null,
     campaign: {
       campaignId: TX(300),
       advertiser: "0x00000000000000000000000000000000000000ad",
@@ -161,6 +166,86 @@ describe("toReceiptView", () => {
     const view = toReceiptView(receipt(), CONTRACT);
     expect(view.contractUrl).toBe(`https://testnet.monadvision.com/address/${CONTRACT}`);
     expect(view.verifyCommand).toBe("pnpm --filter @aria-clearing/receipt verify req_fixture");
+  });
+});
+
+describe("expectedFromQuery", () => {
+  it("reads the card's sentence and claims hashes", () => {
+    expect(expectedFromQuery({ h: TX(200), c: TX(400) })).toEqual({ rationaleHash: TX(200), claimsHash: TX(400) });
+  });
+
+  it("takes the first of repeated values", () => {
+    expect(expectedFromQuery({ h: [TX(200), TX(201)] })).toEqual({ rationaleHash: TX(200) });
+  });
+
+  it("is undefined without hashes and drops malformed ones", () => {
+    expect(expectedFromQuery({})).toBeUndefined();
+    expect(expectedFromQuery({ h: "0x12", c: "nope" })).toBeUndefined();
+    expect(expectedFromQuery({ h: "0x12", c: TX(400) })).toEqual({ claimsHash: TX(400) });
+  });
+});
+
+describe("seen top line", () => {
+  const seenView = (expected?: Parameters<typeof withExpected>[1], base: Receipt = receipt()) =>
+    toReceiptView(withExpected(base, expected), CONTRACT);
+
+  it("says the page was opened without the card's fingerprint when no hashes were given", () => {
+    const view = seenView(undefined);
+
+    expect(view.seen.state).toBe("absent");
+    expect(view.seen.title).toBe("Opened without the card's fingerprint — showing what was logged.");
+    expect(view.consistent).toBe(true);
+  });
+
+  it("confirms the sentence the reader saw when the card's hashes match", () => {
+    const view = seenView({ rationaleHash: TX(200), claimsHash: TX(400) });
+
+    expect(view.seen).toMatchObject({
+      state: "match",
+      title: "The sentence you saw matches the one logged on Monad",
+      differences: [],
+    });
+    expect(view.ok).toBe(true);
+  });
+
+  it("speaks of the claims when only the claims hash was given", () => {
+    expect(seenView({ claimsHash: TX(400) }).seen.title).toBe("The claims behind the card match the ones logged on Monad");
+  });
+
+  it("names the sentence fingerprint that differs", () => {
+    const view = seenView({ rationaleHash: TX(999), claimsHash: TX(400) });
+
+    expect(view.seen.state).toBe("mismatch");
+    expect(view.seen.title).toBe("The sentence you saw does not match the one logged on Monad");
+    expect(view.seen.differences).toEqual([
+      { label: "Sentence fingerprint", card: "0x000000…0003e7", logged: "0x000000…0000c8" },
+    ]);
+    expect(view.ok).toBe(false);
+    expect(view.consistent).toBe(true);
+  });
+
+  it("names the claims fingerprint when only the claims differ", () => {
+    const view = seenView({ rationaleHash: TX(200), claimsHash: TX(999) });
+
+    expect(view.seen.title).toBe("The card's claims do not match the ones logged on Monad");
+    expect(view.seen.differences.map((d) => d.label)).toEqual(["Claims fingerprint"]);
+  });
+
+  it("does not confirm a matching fingerprint on an inconsistent record", () => {
+    const view = seenView({ rationaleHash: TX(200) }, receipt({ ok: false, consistent: false }));
+
+    expect(view.seen.state).toBe("mismatch");
+    expect(view.seen.title).toBe("The logged record is not internally consistent");
+  });
+
+  it("renders the top line before the sentence and calls the hash checks internal consistency", () => {
+    const html = renderToStaticMarkup(createElement(ReceiptDocument, { view: seenView({ rationaleHash: TX(200) }) }));
+
+    expect(html.indexOf('data-seen="match"')).toBeGreaterThan(-1);
+    expect(html.indexOf('data-seen="match"')).toBeLessThan(html.indexOf("<blockquote"));
+    expect(html).toContain("Logged record is internally consistent");
+    expect(html).toContain("Internal consistency");
+    expect(html).not.toContain("Hashes match the chain");
   });
 });
 

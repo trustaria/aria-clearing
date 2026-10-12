@@ -1,6 +1,13 @@
-import { Kind, type EventStatus, type Receipt, type ReceiptEvent } from "@aria-clearing/receipt";
+import {
+  Kind,
+  type EventStatus,
+  type ExpectedReceipt,
+  type Receipt,
+  type ReceiptEvent,
+  type SeenCheck,
+} from "@aria-clearing/receipt";
 import type { PublisherStats } from "../../lib/envio";
-import { addressUrl, formatUsdc, txUrl } from "../../lib/format";
+import { addressUrl, formatUsdc, shortHash, txUrl } from "../../lib/format";
 
 export type Tone = "pending" | "warn" | "good" | "bad";
 export type CheckState = "pass" | "fail" | "unknown";
@@ -41,9 +48,27 @@ export interface EventView {
   steps: StepView[];
 }
 
+export interface SeenDifference {
+  label: string;
+  card: string;
+  logged: string;
+}
+
+/** Whether the sentence and claims the card showed are the ones logged on chain. */
+export interface SeenView {
+  /** absent: the page was opened without the card's hashes. */
+  state: "match" | "mismatch" | "absent";
+  title: string;
+  detail: string;
+  differences: SeenDifference[];
+}
+
 export interface ReceiptView {
   requestId: string;
   ok: boolean;
+  /** The logged records agree with each other; says nothing about what the reader saw. */
+  consistent: boolean;
+  seen: SeenView;
   sentence: string;
   advertiser: string;
   advertiserUrl: string;
@@ -104,17 +129,17 @@ function checksOf(receipt: Receipt): CheckView[] {
   return [
     {
       key: "claims",
-      label: "Approved claims",
+      label: "Logged claims",
       detail:
         receipt.campaign.claimsMatch === null
           ? "Claims text not found in the scanned blocks"
-          : "keccak256(claims) equals the campaign's claimsHash on chain",
+          : "keccak256(logged claims) equals the campaign's claimsHash",
       state: checkState(receipt.campaign.claimsMatch),
     },
     {
       key: "sentence",
-      label: "Sponsored sentence",
-      detail: "keccak256(sentence) equals the logged rationaleHash",
+      label: "Logged sentence",
+      detail: "keccak256(logged sentence) equals the logged rationaleHash",
       state: checkState(all((e) => e.rationaleMatches)),
     },
     {
@@ -181,6 +206,75 @@ function lifecycleSummary(events: ReceiptEvent[]): string {
   return steps.join(" → ");
 }
 
+const HASH_PARAM = /^0x[0-9a-fA-F]{64}$/;
+
+/** The card's hashes from the receipt link (`h` sentence, `c` claims); malformed values are dropped. */
+export function expectedFromQuery(query: Record<string, string | string[] | undefined>): ExpectedReceipt | undefined {
+  const first = (key: string) => {
+    const value = query[key];
+    const text = Array.isArray(value) ? value[0] : value;
+    return text !== undefined && HASH_PARAM.test(text) ? text : undefined;
+  };
+  const h = first("h");
+  const c = first("c");
+  if (!h && !c) return undefined;
+  return { ...(h ? { rationaleHash: h } : {}), ...(c ? { claimsHash: c } : {}) };
+}
+
+const SEEN_LABEL: Partial<Record<SeenCheck["field"], string>> = {
+  rationaleHash: "Sentence fingerprint",
+  claimsHash: "Claims fingerprint",
+};
+
+const ABSENT: SeenView = {
+  state: "absent",
+  title: "Opened without the card's fingerprint — showing what was logged.",
+  detail: "Open this page from the card's “Why this ad?” link to check that the sentence you saw is the one logged on Monad.",
+  differences: [],
+};
+
+function seenOf(receipt: Receipt): SeenView {
+  const seen = receipt.seen;
+  if (!seen || seen.length === 0) return ABSENT;
+  const differences = seen
+    .filter((c) => !c.matches)
+    .map((c) => ({
+      label: SEEN_LABEL[c.field] ?? c.field,
+      card: shortHash(c.expected),
+      logged: c.actual === null ? "not found" : shortHash(c.actual),
+    }));
+  if (differences.length > 0) {
+    const sentenceDiffers = seen.some((c) => c.field === "rationaleHash" && !c.matches);
+    return {
+      state: "mismatch",
+      title: sentenceDiffers
+        ? "The sentence you saw does not match the one logged on Monad"
+        : "The card's claims do not match the ones logged on Monad",
+      detail: "The card's fingerprint differs from what was logged, so this receipt does not cover what you saw.",
+      differences,
+    };
+  }
+  if (!receipt.consistent) {
+    return {
+      state: "mismatch",
+      title: "The logged record is not internally consistent",
+      detail: "The card's fingerprint matches, but the logged record disagrees with itself. See the checks below.",
+      differences: [],
+    };
+  }
+  const sentence = seen.some((c) => c.field === "rationaleHash");
+  return {
+    state: "match",
+    title: sentence
+      ? "The sentence you saw matches the one logged on Monad"
+      : "The claims behind the card match the ones logged on Monad",
+    detail: sentence
+      ? "The card carried a keccak256 fingerprint of the sentence it showed you; Monad logged the same fingerprint for this request."
+      : "The card carried a keccak256 fingerprint of the advertiser's claims; Monad logged the same fingerprint for this campaign.",
+    differences: [],
+  };
+}
+
 /** Maps a verified receipt to what the receipt page renders. Pure. */
 export function toReceiptView(receipt: Receipt, contract: string): ReceiptView {
   const cited = new Set(receipt.events.flatMap((e) => e.claimRefs));
@@ -188,6 +282,8 @@ export function toReceiptView(receipt: Receipt, contract: string): ReceiptView {
   return {
     requestId: receipt.requestId,
     ok: receipt.ok,
+    consistent: receipt.consistent,
+    seen: seenOf(receipt),
     sentence: receipt.events[0]?.rationale ?? "",
     advertiser: receipt.campaign.advertiser,
     advertiserUrl: addressUrl(receipt.campaign.advertiser),

@@ -1,4 +1,4 @@
-import { verifyReceipt, type Receipt } from "@aria-clearing/receipt";
+import { verifyReceipt, withExpected, type ExpectedReceipt, type Receipt } from "@aria-clearing/receipt";
 import { deployment } from "../../lib/deployment";
 
 export type ReceiptResult =
@@ -34,8 +34,17 @@ function ttlOf(result: ReceiptResult): number {
   return TTL_MS[result.state];
 }
 
-/** Reads a receipt from chain, sharing in-flight reads and reusing recent results per requestId. */
-export function loadReceipt(requestId: string): Promise<ReceiptResult> {
+/**
+ * Reads a receipt from chain, sharing in-flight reads and reusing recent results per requestId,
+ * then compares `expected` (the card's hashes) with what was logged.
+ */
+export async function loadReceipt(requestId: string, expected?: ExpectedReceipt): Promise<ReceiptResult> {
+  const result = await readCached(requestId);
+  if (result.state !== "found" || !expected) return result;
+  return { ...result, receipt: withExpected(result.receipt, expected) };
+}
+
+function readCached(requestId: string): Promise<ReceiptResult> {
   const now = Date.now();
   const hit = cache.get(requestId);
   if (hit && hit.expires > now) return hit.result;

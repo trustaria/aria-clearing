@@ -6,13 +6,17 @@ import ReceiptDocument from "../../../components/receipt/ReceiptDocument";
 import { getPublisherStats } from "../../../lib/envio";
 import { addressUrl, shortAddress } from "../../../lib/format";
 import { loadReceipt } from "../load";
-import { toReceiptView, trustLine, verifyCommand } from "../view-model";
+import { expectedFromQuery, toReceiptView, trustLine, verifyCommand } from "../view-model";
 
 export const dynamic = "force-dynamic";
 
 const PENDING_REFRESH_MS = 4_000;
 
-type Props = { params: { requestId: string } };
+type Props = {
+  params: { requestId: string };
+  /** `h` and `c`: the card's rationaleHash and claimsHash. */
+  searchParams?: Record<string, string | string[] | undefined>;
+};
 
 export function generateMetadata({ params }: Props): Metadata {
   return { title: `Receipt ${safeDecode(params.requestId)}` };
@@ -62,9 +66,9 @@ function Notice({
   );
 }
 
-export default async function ReceiptPage({ params }: Props) {
+export default async function ReceiptPage({ params, searchParams }: Props) {
   const requestId = safeDecode(params.requestId);
-  const result = await loadReceipt(requestId);
+  const result = await loadReceipt(requestId, expectedFromQuery(searchParams ?? {}));
 
   let content: React.ReactNode;
   let refresh = true;
