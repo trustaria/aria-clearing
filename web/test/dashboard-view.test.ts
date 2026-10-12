@@ -196,13 +196,17 @@ describe("verification rate", () => {
 
 describe("data source", () => {
   it("labels contract logs as the last 2 hours of scanned blocks", () => {
-    const view = toDashboardView(json(), NOW);
+    const totals = { ...json().totals, impressions: 0, clicks: 1, rejected: 1 };
+    const view = toDashboardView(json({ totals }), NOW);
     expect(view.activity).toEqual({
       aside: "Last 2 hours",
       empty: "No impressions or clicks in the last 2 hours. Once your app shows an ad, it appears here within seconds.",
     });
     expect(view.account).toMatchObject({ source: "Read from contract logs", blocksLabel: "Blocks scanned", blocks: "1000–2000" });
     expect(toDashboardView(json({ activity: [] }), NOW).activity.aside).toBeUndefined();
+    expect(toDashboardView(json({ totals: { ...totals, impressions: 60 } }), NOW).activity.aside).toBe(
+      "Latest 2 of 62 in the last 2 hours",
+    );
   });
 
   it("labels the indexer as all activity, and says when the feed is cut", () => {

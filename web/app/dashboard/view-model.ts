@@ -51,15 +51,16 @@ const SOURCES: Record<DataSource, { label: string; blocks: string }> = {
 /** Feed scope and empty-state text for the source the data came from. */
 export function activityScope(json: DashboardJson): DashboardView["activity"] {
   const shown = json.activity.length;
+  const total = json.totals.impressions + json.totals.clicks + json.totals.rejected;
+  const cut = shown < total ? `Latest ${shown} of ${total.toLocaleString("en-US")}` : null;
   if (json.source === "logs") {
     return {
-      aside: shown ? "Last 2 hours" : undefined,
+      aside: !shown ? undefined : cut ? `${cut} in the last 2 hours` : "Last 2 hours",
       empty: "No impressions or clicks in the last 2 hours. Once your app shows an ad, it appears here within seconds.",
     };
   }
-  const total = json.totals.impressions + json.totals.clicks + json.totals.rejected;
   return {
-    aside: !shown ? undefined : shown < total ? `Latest ${shown} of ${total.toLocaleString("en-US")}` : "All activity",
+    aside: !shown ? undefined : (cut ?? "All activity"),
     empty: "No impressions or clicks yet. Once your app shows an ad, it appears here within a minute.",
   };
 }
