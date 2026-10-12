@@ -6,6 +6,12 @@ import { useHoldViews } from "../lib/debug-flags";
 import { receiptJson, type CardData } from "../lib/receipt";
 import { useImpression } from "../lib/useImpression";
 
+/** Receipt page link carrying the embedded receipt's hashes, so the page can compare them with the chain. */
+function receiptHref(card: CardData): string {
+  const query = new URLSearchParams({ h: card.receipt.rationaleHash, c: card.receipt.claimsHash });
+  return `/receipt/${encodeURIComponent(card.requestId)}?${query}`;
+}
+
 export default function AdCard({ card }: { card: CardData }) {
   const ref = useRef<HTMLElement>(null);
   useImpression(ref, card.requestId, !useHoldViews());
@@ -27,7 +33,7 @@ export default function AdCard({ card }: { card: CardData }) {
         >
           Visit {card.advertiser}
         </a>
-        <a href={`/receipt/${card.requestId}`} className="text-neutral-500 hover:underline">
+        <a href={receiptHref(card)} className="text-neutral-500 hover:underline">
           Why this ad?
         </a>
       </div>

@@ -77,7 +77,9 @@ describe("AdCard", () => {
   it("leads with Sponsored and links the click route and the receipt page", () => {
     expect(html.indexOf("Sponsored")).toBeLessThan(html.indexOf("data-aria-rationale"));
     expect(html).toContain(`href="/api/aria/click/${requestId}"`);
-    expect(html).toContain(`href="/receipt/${requestId}"`);
+    expect(html).toContain(
+      `href="/receipt/${requestId}?h=${card.receipt.rationaleHash}&amp;c=${card.receipt.claimsHash}"`,
+    );
     expect(html).toContain("Why this ad?");
   });
 });
