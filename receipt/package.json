@@ -6,12 +6,15 @@
   "main": "src/index.ts",
   "scripts": {
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "abi": "node scripts/gen-abi.mjs",
+    "verify": "tsx src/cli.ts"
   },
   "dependencies": {
     "viem": "2.31.2"
   },
   "devDependencies": {
+    "tsx": "4.19.2",
     "typescript": "5.6.3",
     "vitest": "2.1.9"
   }
