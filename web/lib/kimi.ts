@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import type { CompletionUsage } from "openai/resources/completions";
 import { describeCampaigns, type Campaign } from "./campaigns";
 import { MAX_RATIONALE, parsePickJson, PICK_DEADLINE_MS, pickWithDeadline, validatePick, type Pick } from "./pick";
 import type { CardData } from "./receipt";
@@ -40,17 +41,27 @@ export function activeModel(): ModelName | null {
   return process.env.NODE_ENV === "production" ? null : "stub";
 }
 
-function client(): OpenAI {
+/** KIMI client from KIMI_API_KEY and KIMI_BASE_URL. */
+export function kimiClient(): OpenAI {
   return new OpenAI({
     apiKey: process.env.KIMI_API_KEY,
     baseURL: process.env.KIMI_BASE_URL || DEFAULT_BASE_URL,
   });
 }
 
-function modelId(): string {
+/** The KIMI_MODEL id; throws when unset. */
+export function kimiModel(): string {
   const id = process.env.KIMI_MODEL;
   if (!id) throw new Error("KIMI_MODEL is not set");
   return id;
+}
+
+/**
+ * Adds the fields every KIMI request carries: reasoning off, so a reply starts in about
+ * a second instead of 30. kimi-k2.6 accepts only temperature 0.6, its default, so none is set.
+ */
+export function kimiBody<T extends object>(body: T): T & { thinking: { type: "disabled" } } {
+  return { ...body, thinking: { type: "disabled" } };
 }
 
 /** Streams the answer text. */
@@ -63,12 +74,12 @@ export async function* streamAnswer(
     yield* stubAnswer();
     return;
   }
-  const stream = await client().chat.completions.create(
-    {
-      model: modelId(),
-      stream: true,
-      messages: [{ role: "system", content: ANSWER_SYSTEM }, ...messages],
-    },
+  const stream = await kimiClient().chat.completions.create(
+    kimiBody({
+      model: kimiModel(),
+      stream: true as const,
+      messages: [{ role: "system" as const, content: ANSWER_SYSTEM }, ...messages],
+    }),
     { signal },
   );
   for await (const chunk of stream) {
@@ -77,23 +88,30 @@ export async function* streamAnswer(
   }
 }
 
-async function kimiPick(question: string, campaigns: Campaign[], signal: AbortSignal): Promise<Pick | null> {
+export type PickReply = { raw: unknown; usage?: CompletionUsage };
+
+/** One pick request: the parsed JSON reply and its token usage. Throws on unparseable output. */
+export async function requestPick(question: string, campaigns: Campaign[], signal: AbortSignal): Promise<PickReply> {
   const user = `Campaigns:\n\n${describeCampaigns(campaigns)}\n\nQuestion: ${question}`;
+  const res = await kimiClient().chat.completions.create(
+    kimiBody({
+      model: kimiModel(),
+      response_format: { type: "json_object" as const },
+      messages: [
+        { role: "system" as const, content: PICK_SYSTEM },
+        { role: "user" as const, content: user },
+      ],
+    }),
+    { signal },
+  );
+  return { raw: parsePickJson(res.choices[0]?.message?.content ?? ""), usage: res.usage };
+}
+
+async function kimiPick(question: string, campaigns: Campaign[], signal: AbortSignal): Promise<Pick | null> {
   // One retry for unparseable output, inside the same deadline.
   for (let attempt = 0; ; attempt++) {
     try {
-      const res = await client().chat.completions.create(
-        {
-          model: modelId(),
-          response_format: { type: "json_object" },
-          messages: [
-            { role: "system", content: PICK_SYSTEM },
-            { role: "user", content: user },
-          ],
-        },
-        { signal },
-      );
-      return validatePick(parsePickJson(res.choices[0]?.message?.content ?? ""), campaigns);
+      return validatePick((await requestPick(question, campaigns, signal)).raw, campaigns);
     } catch (error) {
       if (attempt >= 1 || signal.aborted) throw error;
     }
