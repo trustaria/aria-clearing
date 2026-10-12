@@ -49,7 +49,7 @@ contract SeedTest is Test {
 
     function test_seed_createsEveryCampaignWithReceiptHashes() public {
         uint256 created = seeder.seedAll(clearing, json);
-        assertEq(created, 4);
+        assertEq(created, 14);
 
         bytes32[4] memory expected = [TS_LISBON, TS_AGENCY, TS_ALPINE, TS_LANGUAGE];
         string[4] memory slugs =
@@ -62,7 +62,7 @@ contract SeedTest is Test {
             assertEq(c.priceClick, 250_000);
             assertEq(c.available, 4_000_000);
         }
-        assertEq(usdc.balanceOf(address(clearing)), 16_000_000);
+        assertEq(usdc.balanceOf(address(clearing)), 31_000_000);
     }
 
     function test_seed_emitsClaimsText() public {
@@ -83,6 +83,6 @@ contract SeedTest is Test {
     function test_seed_skipsExistingCampaigns() public {
         seeder.seedAll(clearing, json);
         assertEq(seeder.seedAll(clearing, json), 0);
-        assertEq(usdc.balanceOf(address(clearing)), 16_000_000);
+        assertEq(usdc.balanceOf(address(clearing)), 31_000_000);
     }
 }

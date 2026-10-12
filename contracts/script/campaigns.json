@@ -12,7 +12,15 @@
     ],
     "priceImpression": 10000,
     "priceClick": 250000,
-    "budget": 4000000
+    "budget": 4000000,
+    "keywords": [
+      "lisbon",
+      "algarve",
+      "portugal",
+      "family trip",
+      "family holiday",
+      "travelling with kids"
+    ]
   },
   {
     "slug": "agency-project-planner",
@@ -27,7 +35,15 @@
     ],
     "priceImpression": 10000,
     "priceClick": 250000,
-    "budget": 4000000
+    "budget": 4000000,
+    "keywords": [
+      "project management",
+      "project planner",
+      "client portal",
+      "time tracking",
+      "agency",
+      "resource planning"
+    ]
   },
   {
     "slug": "alpine-hiking-gear",
@@ -42,7 +58,15 @@
     ],
     "priceImpression": 10000,
     "priceClick": 250000,
-    "budget": 4000000
+    "budget": 4000000,
+    "keywords": [
+      "hiking",
+      "hike",
+      "hiking boots",
+      "day pack",
+      "backpack",
+      "trekking"
+    ]
   },
   {
     "slug": "language-coach",
@@ -57,6 +81,244 @@
     ],
     "priceImpression": 10000,
     "priceClick": 250000,
-    "budget": 4000000
+    "budget": 4000000,
+    "keywords": [
+      "learn a language",
+      "language lessons",
+      "language tutor",
+      "learn spanish",
+      "learn italian",
+      "learn french"
+    ]
+  },
+  {
+    "slug": "city-break-hotels",
+    "advertiser": "Corvina City Stays",
+    "url": "https://example.com/corvina-city-stays",
+    "category": "travel",
+    "claims": [
+      "Boutique hotels in the centres of 18 European cities.",
+      "Stays from 1 night, with check-in from 2 pm.",
+      "Free cancellation up to 24 hours before arrival.",
+      "Late checkout until 1 pm on Sundays at every hotel."
+    ],
+    "keywords": [
+      "city break",
+      "weekend away",
+      "hotel",
+      "boutique hotel",
+      "where to stay",
+      "romantic weekend"
+    ],
+    "priceImpression": 10000,
+    "priceClick": 250000,
+    "budget": 1500000
+  },
+  {
+    "slug": "note-taking-app",
+    "advertiser": "Ledgerleaf Notes",
+    "url": "https://example.com/ledgerleaf-notes",
+    "category": "software",
+    "claims": [
+      "Notes, checklists and sketches in one app for phone and desktop.",
+      "Notes sync across devices and stay available offline.",
+      "Meeting notes can be shared with a link and edited together.",
+      "Free for 30 days, no credit card required."
+    ],
+    "keywords": [
+      "note-taking app",
+      "notes app",
+      "meeting notes",
+      "take notes",
+      "note taking",
+      "second brain"
+    ],
+    "priceImpression": 10000,
+    "priceClick": 250000,
+    "budget": 1500000
+  },
+  {
+    "slug": "city-e-bikes",
+    "advertiser": "Pedalvolt Cycles",
+    "url": "https://example.com/pedalvolt-cycles",
+    "category": "outdoor",
+    "claims": [
+      "Electric city bikes with a range of 60 to 100 km per charge.",
+      "Frames in three sizes for riders from 155 to 200 cm.",
+      "Free test rides at 9 showrooms in Germany and the Netherlands.",
+      "Two years of free servicing with every bike."
+    ],
+    "keywords": [
+      "e-bike",
+      "ebike",
+      "electric bike",
+      "bike to work",
+      "cycle to work",
+      "commuter bike"
+    ],
+    "priceImpression": 10000,
+    "priceClick": 250000,
+    "budget": 1500000
+  },
+  {
+    "slug": "online-coding-course",
+    "advertiser": "Codegrove Academy",
+    "url": "https://example.com/codegrove-academy",
+    "category": "education",
+    "claims": [
+      "Online courses in Python, JavaScript and web development.",
+      "Self-paced lessons with weekly live code reviews.",
+      "Mentors reply to questions within one working day.",
+      "A certificate is issued when the final project is completed."
+    ],
+    "keywords": [
+      "learn to code",
+      "coding course",
+      "coding bootcamp",
+      "learn python",
+      "learn javascript",
+      "become a developer"
+    ],
+    "priceImpression": 10000,
+    "priceClick": 250000,
+    "budget": 1500000
+  },
+  {
+    "slug": "foam-mattresses",
+    "advertiser": "Driftmoor Sleep",
+    "url": "https://example.com/driftmoor-sleep",
+    "category": "home",
+    "claims": [
+      "Foam and hybrid mattresses in 6 sizes, delivered rolled in a box.",
+      "A 100-night home trial with free collection if you return it.",
+      "Three firmness levels, with a guide to choose by sleeping position.",
+      "Covers are removable and washable at 40 degrees."
+    ],
+    "keywords": [
+      "mattress",
+      "new mattress",
+      "memory foam",
+      "firm mattress",
+      "mattress in a box",
+      "new bed"
+    ],
+    "priceImpression": 10000,
+    "priceClick": 250000,
+    "budget": 1500000
+  },
+  {
+    "slug": "running-shoes",
+    "advertiser": "Stridefern Running",
+    "url": "https://example.com/stridefern-running",
+    "category": "retail",
+    "claims": [
+      "Road and trail running shoes in half sizes from 35 to 49.",
+      "In-store gait analysis at 14 shops, booked online.",
+      "Shoes can be returned within 30 days, even after a run.",
+      "Wide fits available for most models."
+    ],
+    "keywords": [
+      "running shoes",
+      "trainers",
+      "half marathon",
+      "marathon",
+      "start running",
+      "trail running"
+    ],
+    "priceImpression": 10000,
+    "priceClick": 250000,
+    "budget": 1500000
+  },
+  {
+    "slug": "meal-kit-delivery",
+    "advertiser": "Basil & Barrow Kitchen",
+    "url": "https://example.com/basil-and-barrow",
+    "category": "food and drink",
+    "claims": [
+      "Weekly boxes of pre-portioned ingredients and recipe cards.",
+      "Choose 2 to 5 recipes for 2 or 4 people each week.",
+      "Vegetarian and vegan recipes on the menu every week.",
+      "Skip a week or cancel online at any time."
+    ],
+    "keywords": [
+      "meal kit",
+      "recipe box",
+      "weeknight dinner",
+      "dinner ideas",
+      "cook at home",
+      "meal delivery"
+    ],
+    "priceImpression": 10000,
+    "priceClick": 250000,
+    "budget": 1500000
+  },
+  {
+    "slug": "wireless-headphones",
+    "advertiser": "Hushwave Audio",
+    "url": "https://example.com/hushwave-audio",
+    "category": "retail",
+    "claims": [
+      "Over-ear and in-ear wireless headphones with active noise cancelling.",
+      "Up to 40 hours of playback on a single charge.",
+      "Connects to two devices at once over Bluetooth.",
+      "Two-year warranty and free returns within 30 days."
+    ],
+    "keywords": [
+      "wireless headphones",
+      "headphones",
+      "noise cancelling",
+      "noise-cancelling",
+      "earbuds",
+      "bluetooth headphones"
+    ],
+    "priceImpression": 10000,
+    "priceClick": 250000,
+    "budget": 1500000
+  },
+  {
+    "slug": "kids-building-toys",
+    "advertiser": "Brickmeadow Toys",
+    "url": "https://example.com/brickmeadow-toys",
+    "category": "retail",
+    "claims": [
+      "Building sets for ages 4 to 12, sorted by age on the website.",
+      "Sets use wooden and recycled plastic pieces.",
+      "Pieces from every set fit together across the range.",
+      "Gift wrapping and a gift note are offered at checkout."
+    ],
+    "keywords": [
+      "building toy",
+      "building set",
+      "building blocks",
+      "construction set",
+      "stem toy",
+      "toys for"
+    ],
+    "priceImpression": 10000,
+    "priceClick": 250000,
+    "budget": 1500000
+  },
+  {
+    "slug": "indoor-plant-delivery",
+    "advertiser": "Fernloft Plants",
+    "url": "https://example.com/fernloft-plants",
+    "category": "home",
+    "claims": [
+      "Indoor plants delivered in pots, ready to place.",
+      "Each plant is labelled for light level and pet safety.",
+      "Care guides by email for the first 8 weeks.",
+      "Plants that arrive damaged are replaced for free."
+    ],
+    "keywords": [
+      "houseplant",
+      "house plant",
+      "indoor plant",
+      "plant delivery",
+      "low-light plant",
+      "pet-safe plant"
+    ],
+    "priceImpression": 10000,
+    "priceClick": 250000,
+    "budget": 1500000
   }
 ]
