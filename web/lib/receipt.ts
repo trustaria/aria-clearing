@@ -8,6 +8,7 @@ import {
 import type { Hex } from "viem";
 import type { Campaign } from "./campaigns";
 import type { Pick } from "./pick";
+import deployment from "../../deployments/10143.json";
 
 /** The JSON a card embeds in `<script type="application/json" data-aria-receipt>`. */
 export type Receipt = {
@@ -68,6 +69,6 @@ export function receiptJson(receipt: Receipt): string {
 export function chainConfig(): { chainId: number; contract: string } {
   return {
     chainId: Number(process.env.NEXT_PUBLIC_CHAIN_ID || 10143),
-    contract: process.env.NEXT_PUBLIC_CLEARING_ADDRESS ?? "",
+    contract: process.env.NEXT_PUBLIC_CLEARING_ADDRESS || deployment.address,
   };
 }

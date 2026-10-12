@@ -15,7 +15,7 @@ const PENDING_REFRESH_MS = 4_000;
 type Props = { params: { requestId: string } };
 
 export function generateMetadata({ params }: Props): Metadata {
-  return { title: `Receipt ${decodeURIComponent(params.requestId)}` };
+  return { title: `Receipt ${safeDecode(params.requestId)}` };
 }
 
 /** Publisher verification rate from the indexer; renders nothing when unavailable. Streams in without blocking the receipt. */
@@ -63,7 +63,7 @@ function Notice({
 }
 
 export default async function ReceiptPage({ params }: Props) {
-  const requestId = decodeURIComponent(params.requestId);
+  const requestId = safeDecode(params.requestId);
   const result = await loadReceipt(requestId);
 
   let content: React.ReactNode;
@@ -104,4 +104,13 @@ export default async function ReceiptPage({ params }: Props) {
       {refresh && <AutoRefresh ms={PENDING_REFRESH_MS} />}
     </main>
   );
+}
+
+/** Decodes a URL segment; a malformed `%` sequence is kept as typed instead of throwing. */
+function safeDecode(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
 }

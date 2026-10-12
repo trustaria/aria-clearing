@@ -161,7 +161,7 @@ export function activityFrom(
         status = payout.type === "paid" ? "paid" : "deferred";
         earned = payout.amount;
       } else if (settlement?.outcome === STATUS_RELEASED) {
-        // A release without a payout log comes from the pull-payment contract: the credit was the payout.
+        // A release without a PaidOut log was credited instead: the credit is the payout.
         status = "paid";
         earned = log.price;
       }
