@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GET as click } from "../app/api/aria/click/[requestId]/route";
 import { POST as postEvent } from "../app/api/aria/events/route";
 import { POST as postEvidence } from "../app/api/aria/evidence/route";
+import { saveCampaign } from "../lib/campaign-store";
 import { rememberServed } from "../lib/served";
 import { eventStore } from "../lib/store";
 
@@ -52,6 +53,7 @@ describe("aria routes", () => {
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "aria-routes-"));
     process.env.ARIA_EVENTS_FILE = join(dir, "events.json");
+    process.env.ARIA_CAMPAIGNS_FILE = join(dir, "campaigns.json");
     mocks.sendFromRelayer.mockReset().mockResolvedValue(TX);
     mocks.publisher.mockReset().mockReturnValue(PUBLISHER);
     rememberServed({
@@ -66,6 +68,7 @@ describe("aria routes", () => {
 
   afterEach(() => {
     delete process.env.ARIA_EVENTS_FILE;
+    delete process.env.ARIA_CAMPAIGNS_FILE;
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -159,6 +162,34 @@ describe("aria routes", () => {
       expect((await get(SERVED)).status).toBe(302);
       mocks.publisher.mockReturnValue(undefined);
       expect((await get(SERVED)).status).toBe(302);
+    });
+
+    it("redirects to an ended console campaign's url", async () => {
+      const slug = "crema-works-a1b2";
+      saveCampaign({
+        slug,
+        advertiser: "Crema Works",
+        url: "https://crema.works",
+        category: "food and drink",
+        claims: ["Espresso machines with a 15-bar pump."],
+        priceImpression: 10_000,
+        priceClick: 2_500_000,
+        budget: 5_000_000,
+        keywords: ["espresso machine"],
+        campaignId: campaignIdOf(slug),
+        ownerId: "did:privy:ana",
+        ownerEmail: "ana@crema.works",
+        txHash: TX as `0x${string}`,
+        createdBlock: 1,
+        createdAt: 1,
+        status: "ended",
+      });
+      const requestId = "req_cremacremacremacremacr";
+      rememberServed({ requestId, slug, campaignId: campaignIdOf(slug), rationale: "x", claimRefs: [1], servedAt: 1 });
+
+      const res = await get(requestId);
+      expect(res.status).toBe(302);
+      expect(res.headers.get("Location")).toBe("https://crema.works");
     });
 
     it("returns 404 for an unknown requestId", async () => {

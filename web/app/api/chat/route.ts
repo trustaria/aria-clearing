@@ -1,4 +1,4 @@
-import { campaignBySlug, campaigns } from "@/lib/campaigns";
+import { allCampaigns, campaignBySlug } from "@/lib/campaigns";
 import { activeModel, pickCampaign, streamAnswer, type ChatFrame, type ChatMessage } from "@/lib/kimi";
 import { buildCard, chainConfig } from "@/lib/receipt";
 import { newRequestId } from "@/lib/request-id";
@@ -41,8 +41,9 @@ export async function POST(req: Request) {
       };
       send({ type: "meta", requestId, model });
 
-      const picked = pickCampaign(model, question, campaigns).then((pick) => {
-        const campaign = pick && campaignBySlug(pick.slug);
+      const pickable = allCampaigns();
+      const picked = pickCampaign(model, question, pickable).then((pick) => {
+        const campaign = pick && campaignBySlug(pick.slug, pickable);
         if (!pick || !campaign) return;
         const card = buildCard({ ...chainConfig(), requestId, campaign, pick });
         rememberServed({

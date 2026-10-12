@@ -1,5 +1,6 @@
 import { formatClaims } from "@aria-clearing/receipt";
 import campaignsJson from "../../contracts/script/campaigns.json";
+import { listStoredCampaigns } from "./campaign-store";
 
 export type Campaign = {
   slug: string;
@@ -7,17 +8,42 @@ export type Campaign = {
   url: string;
   category: string;
   claims: string[];
+  /** Buyer phrases that target the campaign. */
+  keywords?: string[];
 };
 
+/** The seeded campaigns from contracts/script/campaigns.json. */
 export const campaigns: Campaign[] = campaignsJson;
 
-export function campaignBySlug(slug: string, list: Campaign[] = campaigns): Campaign | undefined {
-  return list.find((campaign) => campaign.slug === slug);
+/** Seeded campaigns, then stored ones; a stored record never shadows a seeded slug. */
+function merge(stored: Campaign[]): Campaign[] {
+  const seeded = new Set(campaigns.map((c) => c.slug));
+  return [...campaigns, ...stored.filter((c) => !seeded.has(c.slug))];
 }
 
-/** Campaigns as the prompt shows them: slug, advertiser, then the numbered claims. */
+/** Every campaign that can be picked: seeded plus live console campaigns. */
+export function allCampaigns(): Campaign[] {
+  return merge(listStoredCampaigns().filter((c) => c.status === "live"));
+}
+
+/** Seeded plus every stored campaign, ended ones included, so old clicks and names still resolve. */
+export function knownCampaigns(): Campaign[] {
+  return merge(listStoredCampaigns());
+}
+
+/** Finds a campaign by slug in `list`, by default in every known campaign. */
+export function campaignBySlug(slug: string, list?: Campaign[]): Campaign | undefined {
+  return (list ?? knownCampaigns()).find((campaign) => campaign.slug === slug);
+}
+
+/** Campaigns as the prompt shows them: slug, advertiser, category, keywords, then the numbered claims. */
 export function describeCampaigns(list: Campaign[]): string {
   return list
-    .map((c) => `slug: ${c.slug}\nadvertiser: ${c.advertiser}\nclaims:\n${formatClaims(c.claims)}`)
+    .map((c) => {
+      const lines = [`slug: ${c.slug}`, `advertiser: ${c.advertiser}`, `category: ${c.category}`];
+      if (c.keywords?.length) lines.push(`keywords: ${c.keywords.join(", ")}`);
+      lines.push(`claims:\n${formatClaims(c.claims)}`);
+      return lines.join("\n");
+    })
     .join("\n\n");
 }

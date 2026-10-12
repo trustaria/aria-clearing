@@ -10,7 +10,7 @@ import {
   type PublicClient,
 } from "viem";
 import { monadTestnet } from "viem/chains";
-import { campaigns } from "./campaigns";
+import { knownCampaigns } from "./campaigns";
 import { deployment } from "./deployment";
 import { getPublisherStats } from "./envio";
 
@@ -111,10 +111,10 @@ export interface DashboardJson {
   trustScoreBps?: number | null;
 }
 
-/** Advertiser names by onchain campaign id, from the seeded campaigns. */
-export const ADVERTISERS: Record<string, string> = Object.fromEntries(
-  campaigns.map((c) => [campaignIdOf(c.slug).toLowerCase(), c.advertiser]),
-);
+/** Advertiser names by onchain campaign id, ended campaigns included. */
+export function advertiserNames(): Record<string, string> {
+  return Object.fromEntries(knownCampaigns().map((c) => [campaignIdOf(c.slug).toLowerCase(), c.advertiser]));
+}
 
 /** Why a rejected event was rejected: a dispute wins, else the rule its kind failed. */
 export function rejectReason(kind: KindName, disputed: boolean): RejectReason {
@@ -130,7 +130,7 @@ function newestFirst(a: { blockNumber: bigint }, b: { blockNumber: bigint }): nu
 export function activityFrom(
   logs: ClearingLog[],
   publisher: string,
-  advertisers: Record<string, string> = ADVERTISERS,
+  advertisers: Record<string, string> = advertiserNames(),
 ): Activity[] {
   const me = publisher.toLowerCase();
   const disputed = new Set<Hex>();

@@ -1,7 +1,7 @@
 import type { Campaign } from "./campaigns";
 import { MAX_RATIONALE } from "./pick";
 
-// Keywords that signal buying intent for each demo campaign.
+// Keywords that signal buying intent for each seeded campaign; other campaigns use their own keywords.
 const KEYWORDS: Record<string, string[]> = {
   "lisbon-family-trips": ["lisbon", "algarve", "portugal", "family trip", "kids", "vacation", "holiday"],
   "agency-project-planner": ["project management", "agency", "client portal", "time tracking"],
@@ -16,7 +16,9 @@ export const STUB_ANSWER =
 /** Keyword pick: the first matching campaign, cited claims joined verbatim. */
 export function stubPick(question: string, campaigns: Campaign[]) {
   const q = question.toLowerCase();
-  const campaign = campaigns.find((c) => (KEYWORDS[c.slug] ?? []).some((k) => q.includes(k)));
+  const campaign = campaigns.find((c) =>
+    (KEYWORDS[c.slug] ?? c.keywords ?? []).some((k) => q.includes(k.toLowerCase())),
+  );
   if (!campaign) return { slug: null, rationale: "", claimRefs: [] };
 
   const claimRefs: number[] = [];

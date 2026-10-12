@@ -1,7 +1,7 @@
 import { campaignIdOf } from "@aria-clearing/receipt";
 import { describe, expect, it } from "vitest";
 import {
-  ADVERTISERS,
+  advertiserNames,
   activityFrom,
   alignedChunks,
   estimateTime,
@@ -84,9 +84,9 @@ const payoutLogs: ClearingLog[] = [
   disputed(14),
 ];
 
-describe("ADVERTISERS", () => {
+describe("advertiserNames", () => {
   it("names a campaign by its onchain id", () => {
-    expect(ADVERTISERS[LISBON.toLowerCase()]).toBe("Tagus Family Travel");
+    expect(advertiserNames()[LISBON.toLowerCase()]).toBe("Tagus Family Travel");
   });
 });
 
