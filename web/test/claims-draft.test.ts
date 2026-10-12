@@ -9,6 +9,11 @@ import {
   validateDraft,
 } from "../lib/claims-draft";
 
+vi.mock("@/lib/advertiser-auth", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../lib/advertiser-auth")>()),
+  requireAdvertiser: async () => ({ userId: "did:privy:test" }),
+}));
+
 const SAMPLE = {
   brand: "Crema Works",
   url: "https://crema.works",
