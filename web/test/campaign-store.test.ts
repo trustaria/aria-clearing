@@ -135,7 +135,7 @@ describe("stored campaigns downstream", () => {
   });
 
   it("pick prompt omits the keywords line when there are none", () => {
-    const text = describeCampaigns([campaigns[0]]);
+    const text = describeCampaigns([{ ...campaigns[0], keywords: undefined }]);
     expect(text).toContain(`category: ${campaigns[0].category}`);
     expect(text).not.toContain("keywords:");
   });

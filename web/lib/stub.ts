@@ -1,24 +1,28 @@
 import type { Campaign } from "./campaigns";
 import { MAX_RATIONALE } from "./pick";
 
-// Keywords that signal buying intent for each seeded campaign; other campaigns use their own keywords.
-const KEYWORDS: Record<string, string[]> = {
-  "lisbon-family-trips": ["lisbon", "algarve", "portugal", "family trip", "kids", "vacation", "holiday"],
-  "agency-project-planner": ["project management", "agency", "client portal", "time tracking"],
-  "alpine-hiking-gear": ["hiking", "hike", "boots", "backpack", "day pack", "trek"],
-  "language-coach": ["learn a language", "language lessons", "tutor", "learn spanish", "learn italian"],
-};
-
 export const STUB_ANSWER =
   "This is the stub model: KIMI_API_KEY is not set, so Nova returns this fixed answer. " +
   "Set the key in the repo-root .env.local to get real answers from KIMI.";
 
-/** Keyword pick: the first matching campaign, cited claims joined verbatim. */
+/** True when `keyword` appears in `text` as whole words, with an optional plural ending. */
+function mentions(text: string, keyword: string): boolean {
+  const escaped = keyword.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?<![a-z0-9])${escaped}(?:s|es)?(?![a-z0-9])`).test(text);
+}
+
+/** Keyword pick: the campaign matching the most keywords (earlier wins a tie), cited claims joined verbatim. */
 export function stubPick(question: string, campaigns: Campaign[]) {
   const q = question.toLowerCase();
-  const campaign = campaigns.find((c) =>
-    (KEYWORDS[c.slug] ?? c.keywords ?? []).some((k) => q.includes(k.toLowerCase())),
-  );
+  let campaign: Campaign | undefined;
+  let best = 0;
+  for (const c of campaigns) {
+    const score = (c.keywords ?? []).filter((k) => mentions(q, k)).length;
+    if (score > best) {
+      best = score;
+      campaign = c;
+    }
+  }
   if (!campaign) return { slug: null, rationale: "", claimRefs: [] };
 
   const claimRefs: number[] = [];
