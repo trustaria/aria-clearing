@@ -189,7 +189,7 @@ export default function ReceiptDocument({ view, trust }: { view: ReceiptView; tr
         </ul>
       </Section>
 
-      <Section title="Lifecycle" aside="issued → logged → verified">
+      <Section title="Lifecycle" aside={view.lifecycleSummary}>
         <div className="space-y-3">
           {view.events.map((event) => (
             <EventLifecycle key={event.eventId} event={event} />

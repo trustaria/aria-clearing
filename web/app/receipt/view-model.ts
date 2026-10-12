@@ -58,6 +58,8 @@ export interface ReceiptView {
   events: EventView[];
   /** Every event is released or rejected, so the receipt no longer changes. */
   final: boolean;
+  /** The lifecycle of the most cautious event, e.g. "issued → logged → rejected". */
+  lifecycleSummary: string;
   verifyCommand: string;
 }
 
@@ -65,8 +67,15 @@ export const STATUS: Record<EventStatus, StatusView> = {
   logged: { status: "logged", label: "Logged", tone: "pending", note: "On chain, awaiting verification" },
   disputed: { status: "disputed", label: "Disputed", tone: "warn", note: "Under review before settlement" },
   released: { status: "released", label: "Verified", tone: "good", note: "Evidence checked, paid to the publisher" },
-  rejected: { status: "rejected", label: "Rejected", tone: "bad", note: "Evidence failed, budget returned to the advertiser" },
+  rejected: {
+    status: "rejected",
+    label: "Rejected",
+    tone: "bad",
+    note: "Evidence did not pass verification, budget returned to the advertiser",
+  },
 };
+
+const DISPUTED_REJECTED: StatusView = { ...STATUS.rejected, note: "Disputed by the advertiser, budget returned" };
 
 /** Most cautious first: one rejected event marks the whole receipt rejected. */
 const STATUS_PRIORITY: EventStatus[] = ["rejected", "disputed", "logged", "released"];
@@ -143,9 +152,33 @@ function stepsOf(event: ReceiptEvent): StepView[] {
   return steps;
 }
 
-function overallStatus(events: ReceiptEvent[]): StatusView {
+function wasDisputed(event: ReceiptEvent): boolean {
+  return event.status === "disputed" || Boolean(event.disputedTx);
+}
+
+function statusOfEvent(event: ReceiptEvent): StatusView {
+  return event.status === "rejected" && wasDisputed(event) ? DISPUTED_REJECTED : STATUS[event.status];
+}
+
+/** The event that decides the receipt's status: most cautious first. */
+function decidingEvent(events: ReceiptEvent[]): ReceiptEvent | undefined {
   const found = STATUS_PRIORITY.find((status) => events.some((e) => e.status === status));
-  return STATUS[found ?? "logged"];
+  return events.find((e) => e.status === found);
+}
+
+function overallStatus(events: ReceiptEvent[]): StatusView {
+  const deciding = decidingEvent(events);
+  return deciding ? statusOfEvent(deciding) : STATUS.logged;
+}
+
+function lifecycleSummary(events: ReceiptEvent[]): string {
+  const deciding = decidingEvent(events);
+  const steps = ["issued", "logged"];
+  if (deciding && wasDisputed(deciding)) steps.push("disputed");
+  if (deciding?.status === "released") steps.push("verified · paid");
+  else if (deciding?.status === "rejected") steps.push("rejected");
+  else steps.push("awaiting verification");
+  return steps.join(" → ");
 }
 
 /** Maps a verified receipt to what the receipt page renders. Pure. */
@@ -165,11 +198,12 @@ export function toReceiptView(receipt: Receipt, contract: string): ReceiptView {
     claims: receipt.campaign.claims === null ? null : parseClaims(receipt.campaign.claims, cited),
     checks: checksOf(receipt),
     status: overallStatus(receipt.events),
+    lifecycleSummary: lifecycleSummary(receipt.events),
     totalPrice: formatUsdc(total),
     events: receipt.events.map((event) => ({
       kind: Kind[event.kind],
       eventId: event.eventId,
-      status: STATUS[event.status],
+      status: statusOfEvent(event),
       price: formatUsdc(event.price),
       steps: stepsOf(event),
     })),

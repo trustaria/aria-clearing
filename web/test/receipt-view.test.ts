@@ -191,3 +191,37 @@ describe("trustLine", () => {
     expect(trustLine({ ...stats, trustScoreBps: null, trustScore: null })).toBeNull();
   });
 });
+
+describe("rejection reasons", () => {
+  it("names the advertiser's dispute when a rejected event was disputed", () => {
+    const view = toReceiptView(receipt({}, [event({ status: "rejected", disputedTx: TX(9) })]), CONTRACT);
+    expect(view.status.note).toBe("Disputed by the advertiser, budget returned");
+    expect(view.events[0].status.note).toBe("Disputed by the advertiser, budget returned");
+  });
+
+  it("says the evidence did not pass when a rejected event was not disputed", () => {
+    const view = toReceiptView(receipt({}, [event({ status: "rejected" })]), CONTRACT);
+    expect(view.status.note).toBe("Evidence did not pass verification, budget returned to the advertiser");
+  });
+});
+
+describe("lifecycle summary", () => {
+  it("ends on verified and paid for a released receipt", () => {
+    expect(toReceiptView(receipt(), CONTRACT).lifecycleSummary).toBe("issued → logged → verified · paid");
+  });
+
+  it("ends on rejected for a rejected receipt", () => {
+    const view = toReceiptView(receipt({}, [event({ status: "rejected" })]), CONTRACT);
+    expect(view.lifecycleSummary).toBe("issued → logged → rejected");
+  });
+
+  it("shows the dispute before rejection", () => {
+    const view = toReceiptView(receipt({}, [event({ status: "rejected", disputedTx: TX(9) })]), CONTRACT);
+    expect(view.lifecycleSummary).toBe("issued → logged → disputed → rejected");
+  });
+
+  it("ends on awaiting verification while logged", () => {
+    const view = toReceiptView(receipt({}, [event({ status: "logged", settledTx: undefined })]), CONTRACT);
+    expect(view.lifecycleSummary).toBe("issued → logged → awaiting verification");
+  });
+});
