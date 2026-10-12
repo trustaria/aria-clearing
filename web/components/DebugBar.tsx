@@ -104,7 +104,7 @@ export default function DebugBar() {
   const tones = { ok: "text-emerald-700 dark:text-emerald-400", denied: "text-red-600", error: "text-amber-700 dark:text-amber-400" };
 
   return (
-    <div className="fixed right-3 top-3 z-50 w-80 rounded-lg border border-neutral-200 bg-[var(--background)] p-3 font-mono text-[11px] shadow-sm dark:border-neutral-800">
+    <div className="fixed right-3 top-3 z-50 w-72 max-w-[calc(100vw-1.5rem)] rounded-lg border border-neutral-200 bg-[var(--background)] p-3 font-mono text-[11px] shadow-sm dark:border-neutral-800">
       <div className="mb-2 flex items-center justify-between">
         <span className="font-semibold uppercase tracking-wider text-neutral-500">Aria debug</span>
         <button onClick={() => setOpen(false)} className="text-neutral-400 hover:text-neutral-700" aria-label="Close">
