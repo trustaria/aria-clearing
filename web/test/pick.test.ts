@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_RATIONALE, parsePickJson, pickWithDeadline, validatePick } from "../lib/pick";
+import { MAX_RATIONALE, parsePickJson, pickWithDeadline, stripClaimMarkers, validatePick } from "../lib/pick";
 import { campaigns, lisbon } from "./fixtures";
 
 const valid = {
@@ -47,9 +47,28 @@ describe("validatePick", () => {
     expect(pick?.rationale).toBe("Café nearby.");
   });
 
+  it("removes inline claim markers from the rationale", () => {
+    const pick = validatePick(
+      { ...valid, rationale: "Children under 6 stay free (2), and transfers are included [4]." },
+      campaigns,
+    );
+    expect(pick?.rationale).toBe("Children under 6 stay free, and transfers are included.");
+  });
+
   it("returns null for non-objects", () => {
     expect(validatePick(null, campaigns)).toBeNull();
     expect(validatePick("lisbon", campaigns)).toBeNull();
+  });
+});
+
+describe("stripClaimMarkers", () => {
+  it("removes single, listed and bracketed markers", () => {
+    expect(stripClaimMarkers("Free returns (3).")).toBe("Free returns.");
+    expect(stripClaimMarkers("Free returns (1, 3) and repairs [4] too.")).toBe("Free returns and repairs too.");
+  });
+
+  it("keeps numbers that are not markers", () => {
+    expect(stripClaimMarkers("Packs from 18 to 35 litres (day hikes).")).toBe("Packs from 18 to 35 litres (day hikes).");
   });
 });
 

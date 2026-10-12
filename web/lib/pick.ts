@@ -10,6 +10,14 @@ export type Pick = {
   claimRefs: number[];
 };
 
+/** Removes inline claim markers such as "(1)", "(2, 4)" or "[3]" from a rationale. */
+export function stripClaimMarkers(text: string): string {
+  return text
+    .replace(/\s*[([]\s*\d+(?:\s*,\s*\d+)*\s*[)\]]/g, "")
+    .replace(/\s+([.,;!?])/g, "$1")
+    .replace(/\s{2,}/g, " ");
+}
+
 /**
  * Turns raw model output into a pick, or null when there is nothing safe to show:
  * unknown or null slug, blank or over-long rationale, or no claim ref inside 1..claims.length.
@@ -23,7 +31,7 @@ export function validatePick(raw: unknown, campaigns: Campaign[]): Pick | null {
   if (!campaign) return null;
 
   if (typeof rationale !== "string") return null;
-  const text = normalizeRationale(rationale);
+  const text = normalizeRationale(stripClaimMarkers(rationale));
   if (text.length === 0 || text.length > MAX_RATIONALE) return null;
 
   if (!Array.isArray(claimRefs)) return null;
