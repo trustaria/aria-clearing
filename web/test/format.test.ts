@@ -1,5 +1,50 @@
 import { describe, expect, it } from "vitest";
-import { addressUrl, formatMon, formatUsdc, shortAddress, shortHash, txUrl } from "../lib/format";
+import {
+  addressUrl,
+  formatDollars,
+  formatMon,
+  formatPercent,
+  formatUsdc,
+  publisherKey,
+  shortAddress,
+  shortHash,
+  timeAgo,
+  txUrl,
+} from "../lib/format";
+
+describe("formatDollars", () => {
+  it("shows USDC base units as dollars", () => {
+    expect(formatDollars(0n)).toBe("$0.00");
+    expect(formatDollars(260_000n)).toBe("$0.26");
+    expect(formatDollars(250_000n)).toBe("$0.25");
+    expect(formatDollars(12_345_000_000n)).toBe("$12,345.00");
+  });
+});
+
+describe("formatPercent", () => {
+  it("keeps one decimal and shows a dash with nothing to divide", () => {
+    expect(formatPercent(0.5)).toBe("50.0%");
+    expect(formatPercent(1 / 3)).toBe("33.3%");
+    expect(formatPercent(0)).toBe("0.0%");
+    expect(formatPercent(null)).toBe("—");
+  });
+});
+
+describe("publisherKey", () => {
+  it("masks the address down to its last four characters", () => {
+    expect(publisherKey("0x67435bD1FCd81D6c25C6546a86af0eF6887F72cb")).toBe("pk_live_••••72cb");
+  });
+});
+
+describe("timeAgo", () => {
+  it("rounds down to the largest whole unit", () => {
+    expect(timeAgo(1_000, 1_030)).toBe("just now");
+    expect(timeAgo(1_000, 1_000 + 5 * 60 + 59)).toBe("5 min ago");
+    expect(timeAgo(1_000, 1_000 + 3 * 3600)).toBe("3 h ago");
+    expect(timeAgo(1_000, 1_000 + 2 * 86400)).toBe("2 d ago");
+    expect(timeAgo(2_000, 1_000)).toBe("just now");
+  });
+});
 
 describe("formatUsdc", () => {
   it("reads 6 decimals and keeps at least two", () => {

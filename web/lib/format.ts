@@ -24,6 +24,32 @@ export function formatMon(wei: bigint): string {
   return kept ? `${groupThousands(whole)}.${kept}` : groupThousands(whole);
 }
 
+/** USDC base units as dollars, e.g. 260000n → "$0.26". */
+export function formatDollars(amount: bigint): string {
+  return `$${formatUsdc(amount)}`;
+}
+
+/** A fraction as a percentage with one decimal; "—" when there is nothing to divide. */
+export function formatPercent(fraction: number | null): string {
+  return fraction === null ? "—" : `${(fraction * 100).toFixed(1)}%`;
+}
+
+/** Masked publisher id shown to developers: a fixed prefix and the address's last four characters. */
+export function publisherKey(address: string): string {
+  return `pk_live_••••${address.slice(-4).toLowerCase()}`;
+}
+
+/** Age of a unix-seconds time relative to `now` (also unix seconds), e.g. "3 min ago". */
+export function timeAgo(time: number, now: number): string {
+  const seconds = Math.max(0, Math.round(now - time));
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  return `${Math.floor(hours / 24)} d ago`;
+}
+
 export function shortAddress(address: string): string {
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
 }
