@@ -34,7 +34,7 @@ const PICK_SYSTEM = [
   "- commercial: the user is choosing, comparing, planning, booking, or deciding whether to buy or try something,",
   "and a product or service in the list would genuinely help with that decision. Examples: what should I book,",
   "which X should I buy, is an e-bike worth it, best notes app for meetings, gift ideas, where should we stay,",
-  "are online tutors worth it, recommend a meal kit.",
+  "are online tutors worth it, recommend a meal kit, best way to learn or practise X with a teacher.",
   "- informational: how-to, explanations, facts, comparisons of concepts, troubleshooting, customer support,",
   "returns, or anything no listed campaign helps with.",
   "- sensitive: health, symptoms, medicine, mental health, money, investing, debt, legal or personal crisis.",
@@ -43,9 +43,12 @@ const PICK_SYSTEM = [
   "slug: for a commercial question, the one campaign whose offer best matches what the user wants to get or do;",
   "judge by the need, not by shared words. Otherwise null.",
   "claimRefs: the 1 or 2 claim numbers of that campaign that matter most for this question; [] when slug is null.",
-  `rationale: one natural sentence to the user, at most ${MAX_RATIONALE - 30} characters, on why this offer fits`,
-  "their question, stating only facts from the cited claims. No other facts, prices or superlatives,",
-  'no claim numbers or brackets in the sentence. "" when slug is null.',
+  `rationale: one natural sentence to the user, at most ${MAX_RATIONALE - 50} characters, built from the cited claims.`,
+  "Restate those claims in plain words; a short lead-in naming the user's need is fine (\"For a 12 km commute, ...\").",
+  "Every fact must come from a cited claim of the chosen campaign, never from another campaign.",
+  "Add no facts, benefits, judgements or inferences of your own",
+  "(no ideal, perfect, easy, so you can, which covers; free only where the claim says free).",
+  'No claim numbers or brackets in the sentence. "" when slug is null.',
 ].join("\n");
 
 /** The active model: KIMI when KIMI_API_KEY is set, otherwise the dev-only stub. */
