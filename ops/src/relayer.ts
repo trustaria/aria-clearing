@@ -1,3 +1,4 @@
+import { APIError } from "@privy-io/node";
 import { requireEnv } from "./env";
 import { MONAD_TESTNET_CAIP2, MONAD_TESTNET_CHAIN_ID, normalizeAddress } from "./policy";
 import { authorizationContext, privyClient } from "./privy";
@@ -30,6 +31,13 @@ async function send({ to, data, gasLimit }: RelayerTx): Promise<Hex> {
     },
   });
   return response.hash as Hex;
+}
+
+/** Privy's error code from a failed request, e.g. `policy_violation` or `transaction_broadcast_failure`. */
+export function privyErrorCode(err: unknown): string | undefined {
+  if (!(err instanceof APIError)) return undefined;
+  const body = err.error as { code?: unknown } | undefined;
+  return typeof body?.code === "string" ? body.code : undefined;
 }
 
 /** Sends a zero-value contract call from the relayer on Monad testnet and returns the tx hash. */
