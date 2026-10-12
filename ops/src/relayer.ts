@@ -5,19 +5,19 @@ import { authorizationContext, privyClient } from "./privy";
 
 type Hex = `0x${string}`;
 
-export type RelayerTx = { to: string; data: Hex; gasLimit: bigint | number };
+export type WalletTx = { to: string; data: Hex; gasLimit: bigint | number };
+export type RelayerTx = WalletTx;
 
-// Sends from this process run one at a time, so nonces are assigned in order.
-let queue: Promise<unknown> = Promise.resolve();
+// Sends from one wallet in this process run one at a time, so its nonces are assigned in order.
+const queues = new Map<string, Promise<unknown>>();
 
 /** Public address of the relayer server wallet. */
 export function relayerAddress(): Hex {
   return requireEnv(["RELAYER_ADDRESS"]).RELAYER_ADDRESS as Hex;
 }
 
-async function send({ to, data, gasLimit }: RelayerTx): Promise<Hex> {
-  const { RELAYER_WALLET_ID } = requireEnv(["RELAYER_WALLET_ID"]);
-  const response = await privyClient().wallets().ethereum().sendTransaction(RELAYER_WALLET_ID, {
+async function send(walletId: string, { to, data, gasLimit }: WalletTx): Promise<Hex> {
+  const response = await privyClient().wallets().ethereum().sendTransaction(walletId, {
     caip2: MONAD_TESTNET_CAIP2,
     authorization_context: authorizationContext(),
     params: {
@@ -40,9 +40,18 @@ export function privyErrorCode(err: unknown): string | undefined {
   return typeof body?.code === "string" ? body.code : undefined;
 }
 
-/** Sends a zero-value contract call from the relayer on Monad testnet and returns the tx hash. */
-export function sendFromRelayer(tx: RelayerTx): Promise<Hex> {
-  const result = queue.then(() => send(tx));
-  queue = result.catch(() => undefined);
+/** Sends a zero-value contract call from a Privy server wallet on Monad testnet and returns the tx hash. */
+export function sendFromWallet(walletId: string, tx: WalletTx): Promise<Hex> {
+  const result = (queues.get(walletId) ?? Promise.resolve()).then(() => send(walletId, tx));
+  queues.set(
+    walletId,
+    result.catch(() => undefined),
+  );
   return result;
+}
+
+/** Sends a zero-value contract call from the relayer on Monad testnet and returns the tx hash. */
+export async function sendFromRelayer(tx: RelayerTx): Promise<Hex> {
+  const { RELAYER_WALLET_ID } = requireEnv(["RELAYER_WALLET_ID"]);
+  return sendFromWallet(RELAYER_WALLET_ID, tx);
 }
