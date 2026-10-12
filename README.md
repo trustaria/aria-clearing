@@ -96,10 +96,29 @@ shows only what was logged.
 5. **Payout.** In the same transaction, released events pay the app's account directly (`PaidOut`); rejected
    and disputed events return to the advertiser's budget. Aria pays all gas: the app never signs, claims or
    holds gas tokens. If a transfer ever fails, the amount waits as credit (`PayoutDeferred`) and `claim()` pays
-   it out.
+   it out; that fallback is the one path where the app's account needs gas.
 
 The wallet that logs events cannot release funds; only a report through the forwarder can, and only after a
-window the contract enforces.
+window the contract enforces. The forwarder address itself is set by the contract owner (Aria).
+
+### The Privy policies
+
+Both of Aria's server wallets are Privy server wallets owned by an authorization key, each with a deny-by-default
+policy on Monad testnet (`eip155:10143`):
+
+| Wallet | Allowed, everything else denied |
+|---|---|
+| Relayer (logs events) | `eth_sendTransaction` to AriaClearing whose calldata function is `logEvent` |
+| Advertiser treasury (console campaigns) | USDC `approve` with spender = AriaClearing; AriaClearing `createCampaign`, `dispute`, `withdraw` |
+
+A request outside the policy never reaches the chain. This is the response when the relayer tries to send
+0.001 MON to the publisher (the "Relayer tries to pay" control), or the treasury tries a USDC `transfer`:
+
+```json
+HTTP 400 {"error":"RPC request denied due to policy violation","code":"policy_violation"}
+```
+
+Rules: `ops/src/policy.ts`. Probes: `pnpm --filter @aria-clearing/ops privy:probe` and `privy:treasury-probe`.
 
 ### What is verified — and what is not
 
@@ -111,10 +130,24 @@ window the contract enforces.
 | The relayer cannot pay anyone (contract roles + Privy policy) | Decentralised execution: the workflow runs in CRE simulation, and the Monad testnet mock forwarder is permissionless |
 | The sentence you pass (`--sentence`, `--receipt`, or the card's `?h=` link) equals the one logged for that request | Without that input, only that the logged record is internally consistent: the contract hashes what it logs |
 | | That the sentence is a faithful reading of the claims: an LLM wrote it, citing claim numbers |
-| The dispute window passed without a dispute | |
+| The dispute window passed without a dispute | That viewability was measured honestly: the app's page measures it and reports it; the workflow checks the rule, not the measurement |
+| | Settlement routing: the owner can change the forwarder, and with the permissionless mock forwarder anyone could post a far-future `reportedAt` and stall later reports |
+| | Fair disputes: in the demo a dispute is a free advertiser veto and is always refunded; production needs a bond or an arbiter |
 
 Next steps toward production: a second, independent evidence source (advertiser conversion postbacks); per-epoch
 Merkle roots instead of one transaction per event; a deployed DON with the production forwarder.
+
+## Advertisers
+
+`/advertise` is a minimal campaign console modelled on Google Ads, for brands that know nothing about crypto:
+sign in with email, describe the product, approve the claims KIMI drafts from it (the exact text that goes
+onchain), pick a budget and CPC/CPM bids, and launch. The campaign page shows spend, remaining budget,
+impressions, clicks, CTR, every sponsored sentence with its receipt, Dispute and End campaign.
+
+Funding is honest test funding: "This is a test network. No card is charged." Aria's treasury server wallet is the
+onchain advertiser for console campaigns and acts for the brand (custodial, test mode); launching is one
+`createCampaign` transaction that moves the budget into escrow. A new campaign joins the list the AI picks from
+immediately.
 
 ## How it uses Monad
 
@@ -158,8 +191,8 @@ graph LR
 | `receipt/` | the hash recipe, the ABI, `verifyReceipt()` and the `verify` CLI; depends on viem only |
 | `cre/` | the `aria-settle` Chainlink CRE workflow (TypeScript SDK) with its tests |
 | `indexer/` | Envio HyperIndex: campaigns, event lifecycle and a per-publisher trust score; serves the dashboard's totals, activity feed and trust score |
-| `ops/` | Privy relayer and policy scripts, and `sendFromRelayer()` |
-| `web/` | Nova (the reference AI app), Aria's API routes, the receipt page and the publisher dashboard |
+| `ops/` | Privy server wallets (relayer, advertiser treasury), their policies, probes and `sendFromWallet()` |
+| `web/` | Nova (the reference AI app), Aria's API routes, the receipt page, the publisher dashboard and the advertiser console |
 | `deployments/` | `10143.json`: the live contract address and deploy block |
 
 ## Technology
@@ -175,12 +208,21 @@ Requirements: Node ≥ 22.15, pnpm 10, Foundry ≥ 1.8, bun ≥ 1.2.21 and the `
 the indexer).
 
 ```bash
+git clone --recurse-submodules <this repo>   # contracts/lib are git submodules
 pnpm install
 cp .env.example .env.local      # fill in the values; `pnpm env:check` lists what is missing
-pnpm dev                        # http://localhost:3000 — Nova; /dashboard; /receipt/<requestId>
+pnpm dev                        # http://localhost:3000 — Nova; /dashboard; /advertise; /receipt/<requestId>
 ```
 
-Without `KIMI_API_KEY` Nova uses a clearly labelled stub model so the rest can be tried offline.
+**With no secrets at all** you can still: run every test suite; `verify` any receipt from the public RPC; and
+`pnpm dev` to open receipt pages and Nova on its clearly labelled stub model (the stub runs in dev only, never
+under `next start`). Logging events and the dashboards need a Privy app (`NEXT_PUBLIC_PRIVY_APP_ID`,
+`PRIVY_APP_SECRET`, an authorization key); real answers need `KIMI_API_KEY`; settlement needs `cre login` and a
+funded key; the indexer needs Docker and `ENVIO_API_TOKEN`.
+
+**Single-tenant demo server.** The web app holds the relayer's and the seed advertiser's credentials and exposes
+demo controls (forge, dispute, publisher registration) without access control. Run it on your own machine; do not
+host it publicly as is.
 
 Settle pending events (after the dispute window):
 
@@ -208,7 +250,8 @@ activity from the last ~2 hours of contract logs instead and hides the trust sco
 Deploy your own copy: see `contracts/README.md` (deploy, Sourcify verification, seed) and
 `pnpm --filter @aria-clearing/ops privy:relayer` / `privy:policy` for the relayer.
 
-Tests: `pnpm test` (receipt, ops, web), `cd contracts && forge test`, `cd cre/aria-settle && bun test`.
+Tests: `pnpm test` (receipt, indexer, ops, web; the indexer needs Node ≥ 22.15), `cd contracts && forge test`,
+`cd cre/aria-settle && bun test`.
 
 ## Demo controls
 
@@ -225,7 +268,9 @@ card is viewed as soon as it appears.
   hackathon.
 - Libraries: OpenZeppelin Contracts, forge-std, viem, `@chainlink/cre-sdk`, `@privy-io/react-auth`,
   `@privy-io/node`, Envio, Next.js. The advertisers in the demo are fictional.
-- This project was built with the help of AI coding tools (Claude Code), as allowed by the hackathon rules.
+- This project was built with the help of AI coding tools (Claude Code), as allowed by the hackathon rules: parallel
+  coding agents worked in separate git worktrees and their commits were merged onto `main`, which is why some
+  commits share timestamps.
 
 ## License
 
