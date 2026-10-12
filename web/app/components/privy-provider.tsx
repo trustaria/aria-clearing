@@ -5,8 +5,12 @@ import { monadTestnet } from "viem/chains";
 
 export default function PrivyProvider({
   children,
+  landingHeader = "Sign in to Aria",
+  loginMessage = "Earnings and payouts for your AI app",
 }: {
   children: React.ReactNode;
+  landingHeader?: string;
+  loginMessage?: string;
 }) {
   return (
     <BasePrivyProvider
@@ -14,8 +18,8 @@ export default function PrivyProvider({
       config={{
         loginMethods: ["email"],
         appearance: {
-          landingHeader: "Sign in to Aria",
-          loginMessage: "Earnings and payouts for your AI app",
+          landingHeader,
+          loginMessage,
           showWalletLoginFirst: false,
         },
         // Create embedded wallets for users who don't have a wallet
