@@ -2,7 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { APIError } from "@privy-io/node";
 import { privyErrorCode, sendFromRelayer, sendFromWallet } from "../src/relayer";
 
-type SendCall = { walletId: string; body: Record<string, unknown>; resolve: (hash: string) => void; reject: (err: unknown) => void };
+type SendCall = {
+  walletId: string;
+  body: Record<string, unknown>;
+  resolve: (hash: string) => void;
+  reject: (err: unknown) => void;
+};
 
 const calls: SendCall[] = [];
 

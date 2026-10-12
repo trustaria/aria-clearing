@@ -43,10 +43,7 @@ export function privyErrorCode(err: unknown): string | undefined {
 /** Sends a zero-value contract call from a Privy server wallet on Monad testnet and returns the tx hash. */
 export function sendFromWallet(walletId: string, tx: WalletTx): Promise<Hex> {
   const result = (queues.get(walletId) ?? Promise.resolve()).then(() => send(walletId, tx));
-  queues.set(
-    walletId,
-    result.catch(() => undefined),
-  );
+  queues.set(walletId, result.catch(() => undefined));
   return result;
 }
 

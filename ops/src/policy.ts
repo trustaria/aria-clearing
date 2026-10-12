@@ -66,7 +66,13 @@ export function relayerPolicy(input: { clearingAddress: string; abi: readonly Ab
 }
 
 function callsFunction(abi: readonly AbiItem[], name: string): Condition {
-  return { field_source: "ethereum_calldata", field: "function_name", abi: functionAbi(abi, name), operator: "eq", value: name };
+  return {
+    field_source: "ethereum_calldata",
+    field: "function_name",
+    abi: functionAbi(abi, name),
+    operator: "eq",
+    value: name,
+  };
 }
 
 function allowSend(name: string, conditions: Condition[]): Rule {
