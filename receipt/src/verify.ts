@@ -285,9 +285,25 @@ export async function findBlockAtTimestamp(
   return low;
 }
 
+type BlockRange = { fromBlock: bigint; toBlock: bigint };
+
+/** Fetches `chunks` in order, `batch` at a time, and returns the first non-empty batch's results ([] when none). */
+async function scanUntilFound<T>(
+  chunks: BlockRange[],
+  batch: number,
+  getChunk: (range: BlockRange) => Promise<T[]>,
+  cancelled: () => boolean = () => false,
+): Promise<T[]> {
+  for (let i = 0; i < chunks.length && !cancelled(); i += batch) {
+    const found = (await mapLimit(chunks.slice(i, i + batch), batch, getChunk)).flat();
+    if (found.length > 0) return found;
+  }
+  return [];
+}
+
 /**
  * Walks [floor, start] from `start` downward in chunks of at most `size` blocks, at most
- * `maxChunks` of them, `batch` chunks at a time. Returns the results of the first
+ * `maxChunks` of them, `batch` chunks at a time, until `cancelled()` is true. Returns the results of the first
  * batch (nearest chunk first) that has any, or [] when none does.
  */
 export async function scanBackward<T>(
@@ -296,18 +312,29 @@ export async function scanBackward<T>(
   size: bigint,
   maxChunks: number,
   batch: number,
-  getChunk: (range: { fromBlock: bigint; toBlock: bigint }) => Promise<T[]>,
+  getChunk: (range: BlockRange) => Promise<T[]>,
+  cancelled?: () => boolean,
 ): Promise<T[]> {
-  const chunks: { fromBlock: bigint; toBlock: bigint }[] = [];
+  const chunks: BlockRange[] = [];
   for (let to = start; to >= floor && chunks.length < maxChunks; to -= size) {
     const from = to - size + 1n;
     chunks.push({ fromBlock: from > floor ? from : floor, toBlock: to });
   }
-  for (let i = 0; i < chunks.length; i += batch) {
-    const found = (await mapLimit(chunks.slice(i, i + batch), batch, getChunk)).flat();
-    if (found.length > 0) return found;
-  }
-  return [];
+  return scanUntilFound(chunks, batch, getChunk, cancelled);
+}
+
+/** Resolves with the first non-empty result among `tasks`, or [] when every task is empty. */
+async function firstNonEmpty<T>(tasks: Promise<T[]>[]): Promise<T[]> {
+  return new Promise((resolve, reject) => {
+    let pending = tasks.length;
+    if (pending === 0) resolve([]);
+    for (const task of tasks) {
+      task.then((found) => {
+        if (found.length > 0) resolve(found);
+        else if (--pending === 0) resolve([]);
+      }, reject);
+    }
+  });
 }
 
 /** Runs `fn` over `items` with at most `limit` calls in flight, keeping result order. */
@@ -461,20 +488,33 @@ export async function verifyReceipt(requestId: string, options: VerifyOptions): 
 
   const getCampaignLogs = (range: { fromBlock: bigint; toBlock: bigint }) =>
     client.getLogs({ address, event: campaignCreatedEvent, args: { campaignId }, ...range });
-  const forwardCampaignScan = (from: bigint) =>
-    scan(from, firstLogged, options.campaignScanChunks ?? DEFAULT_CAMPAIGN_SCAN_CHUNKS, getCampaignLogs);
+  const forwardCampaignScan = (from: bigint, cancelled?: () => boolean) =>
+    scanUntilFound(
+      chunkRange(from, firstLogged, maxRange).slice(0, options.campaignScanChunks ?? DEFAULT_CAMPAIGN_SCAN_CHUNKS),
+      concurrency,
+      getCampaignLogs,
+      cancelled,
+    );
   const findCampaignLogs = async () => {
     if (options.campaignFromBlock !== undefined) return forwardCampaignScan(options.campaignFromBlock);
     if (options.fromBlock === undefined) return [];
-    const back = await scanBackward(
-      firstLogged,
-      floor,
-      maxRange,
-      options.campaignBackScanChunks ?? DEFAULT_CAMPAIGN_BACK_SCAN_CHUNKS,
-      concurrency,
-      getCampaignLogs,
-    );
-    return back.length > 0 ? back : forwardCampaignScan(floor);
+    // Backward finds recent campaigns, forward finds ones near the deploy; the first hit wins.
+    let settled = false;
+    const cancelled = () => settled;
+    const found = await firstNonEmpty([
+      scanBackward(
+        firstLogged,
+        floor,
+        maxRange,
+        options.campaignBackScanChunks ?? DEFAULT_CAMPAIGN_BACK_SCAN_CHUNKS,
+        concurrency,
+        getCampaignLogs,
+        cancelled,
+      ),
+      forwardCampaignScan(floor, cancelled),
+    ]);
+    settled = true;
+    return found;
   };
   const campaignScan = findCampaignLogs();
 
