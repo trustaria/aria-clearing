@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { createTestIndexer, TestHelpers } from "envio";
 
@@ -7,7 +8,9 @@ const CAMPAIGN = `0x${"c".repeat(64)}`;
 const id = (n: number) => `0x${n.toString(16).padStart(64, "0")}`;
 const tx = (n: number) => `0x${(1000 + n).toString(16).padStart(64, "0")}`;
 
-let block = 70_463_300;
+// Simulated events must sit after config.yaml's start_block, or envio drops them.
+const START_BLOCK = Number(/start_block:\s*(\d+)/.exec(readFileSync(new URL("../config.yaml", import.meta.url), "utf8"))![1]);
+let block = START_BLOCK + 100;
 const at = () => {
   block += 1;
   return { number: block, timestamp: 1_760_000_000 + block };
