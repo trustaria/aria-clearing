@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { activeModel } from "./kimi";
+import { kimiLimiter } from "./kimi-limiter";
 import { parsePickJson, pickWithDeadline } from "./pick";
 import { brandFromSite, readSite, type Site, type SiteResult } from "./site-reader";
 
@@ -193,15 +194,15 @@ export function stubDraft({ brand, description }: DraftInput): DraftResult {
   };
 }
 
-/** A JSON-mode KIMI completion with thinking disabled. */
+/** A JSON-mode KIMI completion with thinking disabled, run through the process-wide limiter. */
 const askKimi: Ask = async (system, user, signal) => {
   const model = process.env.KIMI_MODEL;
   if (!model) throw new Error("KIMI_MODEL is not set");
   const client = new OpenAI({
     apiKey: process.env.KIMI_API_KEY,
     baseURL: process.env.KIMI_BASE_URL || DEFAULT_BASE_URL,
-    // Rate-limit (429) retries keep going until the draft deadline aborts the call.
-    maxRetries: 6,
+    // 429s are retried by the limiter, within the draft deadline.
+    maxRetries: 0,
   });
   // `thinking` is a Moonshot extension the SDK types do not know; the SDK sends it as is.
   const body: OpenAI.Chat.ChatCompletionCreateParamsNonStreaming & { thinking: { type: "disabled" } } = {
@@ -213,7 +214,10 @@ const askKimi: Ask = async (system, user, signal) => {
       { role: "user", content: user },
     ],
   };
-  const res = await client.chat.completions.create(body, { signal });
+  const res = await kimiLimiter().run(() => client.chat.completions.create(body, { signal }), {
+    deadline: Date.now() + DRAFT_DEADLINE_MS,
+    signal,
+  });
   return res.choices[0]?.message?.content ?? "";
 };
 

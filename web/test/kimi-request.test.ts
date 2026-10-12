@@ -179,3 +179,24 @@ describe("/api/chat with KIMI", () => {
     expect(bodies).toHaveLength(1);
   });
 });
+
+describe("claims draft through the limiter", () => {
+  const input = { brand: "Tagus", url: "https://example.com", description: "Family trips." };
+  const claims = ["Family packages for Lisbon.", "Children under 6 stay free.", "Airport transfers included."];
+
+  it("retries a 429, then drafts", async () => {
+    let calls = 0;
+    const ok = json(JSON.stringify({ claims, category: "travel", keywords: [] }));
+    reply = (req, res) => (++calls === 1 ? rateLimited(req, res) : ok(req, res));
+    expect(await draftClaims(input)).toMatchObject({ category: "travel" });
+    expect(calls).toBe(2);
+  });
+
+  it("falls back to manual when no slot opens before the deadline", async () => {
+    setKimiLimiter(createKimiLimiter({ rpm: 1, concurrency: 1 }));
+    reply = json(JSON.stringify({ claims, category: "travel", keywords: [] }));
+    await draftClaims(input);
+    expect(await draftClaims(input)).toEqual({ manual: true });
+    expect(bodies).toHaveLength(1);
+  });
+});
