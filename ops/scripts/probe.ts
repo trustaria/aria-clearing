@@ -1,7 +1,14 @@
 import { writeFileSync } from "node:fs";
+import { ariaClearingAbi } from "@aria-clearing/receipt";
 import { APIError } from "@privy-io/node";
 import { appendEnv, loadEnvFile, requireEnv } from "../src/env";
-import { MONAD_TESTNET_CAIP2, MONAD_TESTNET_CHAIN_ID, normalizeAddress, testTransferPolicy } from "../src/policy";
+import {
+  MONAD_TESTNET_CAIP2,
+  MONAD_TESTNET_CHAIN_ID,
+  normalizeAddress,
+  relayerPolicy,
+  testTransferPolicy,
+} from "../src/policy";
 import { authorizationContext, privyClient } from "../src/privy";
 
 // Probes the policy engine on a throwaway wallet that may only transact with DEPLOYER_ADDRESS.
@@ -55,11 +62,11 @@ function signOnly(to: string) {
   });
 }
 
-function send(to: string, sponsor = false) {
+function send(to: string, { value = "0x0", sponsor = false } = {}) {
   return privy.wallets().ethereum().sendTransaction(walletId!, {
     caip2: MONAD_TESTNET_CAIP2,
     authorization_context: authorizationContext(),
-    params: { transaction: { to, value: "0x0", chain_id: MONAD_TESTNET_CHAIN_ID } },
+    params: { transaction: { to, value, chain_id: MONAD_TESTNET_CHAIN_ID } },
     ...(sponsor && { sponsor: true }),
   });
 }
@@ -75,6 +82,7 @@ async function attempt(name: string, run: () => Promise<unknown>) {
   }
 }
 
+const milliMon = "0x38d7ea4c68000";
 const upperDeployer = `0x${deployer.slice(2).toUpperCase()}`;
 const results = [
   await attempt("sign: outsider (expect policy denial)", () => signOnly(outsider)),
@@ -82,7 +90,14 @@ const results = [
   await attempt("sign: deployer uppercase hex (case sensitivity)", () => signOnly(upperDeployer)),
   await attempt("send: outsider, unfunded", () => send(outsider)),
   await attempt("send: deployer, unfunded", () => send(deployer)),
-  await attempt("send: deployer, sponsor=true", () => send(deployer, true)),
+  await attempt("send: outsider 0.001 MON, unfunded", () => send(outsider, { value: milliMon })),
+  await attempt("send: deployer 0.001 MON, unfunded", () => send(deployer, { value: milliMon })),
+  await attempt("send: deployer, sponsor=true", () => send(deployer, { sponsor: true })),
+  await attempt("relayer policy accepted by Privy (placeholder address, deleted after)", async () => {
+    const created = await privy.policies().create(relayerPolicy({ clearingAddress: outsider, abi: ariaClearingAbi }));
+    await privy.policies().delete(created.id, {});
+    return { id: created.id, rules: created.rules.length, deleted: true };
+  }),
 ];
 
 const report = {
