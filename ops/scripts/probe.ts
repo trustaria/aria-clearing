@@ -93,6 +93,20 @@ const results = [
   await attempt("send: outsider 0.001 MON, unfunded", () => send(outsider, { value: milliMon })),
   await attempt("send: deployer 0.001 MON, unfunded", () => send(deployer, { value: milliMon })),
   await attempt("send: deployer, sponsor=true", () => send(deployer, { sponsor: true })),
+  await attempt("owner-signed policy update (no-op)", async () => {
+    const updated = await privy.policies().update(policyId!, {
+      rules: testTransferPolicy({ recipient: deployer }).rules,
+      authorization_context: authorizationContext(),
+    });
+    return { id: updated.id, rules: updated.rules.length };
+  }),
+  await attempt("owner-signed wallet policy attach (no-op)", async () => {
+    const updated = await privy.wallets().update(walletId!, {
+      policy_ids: [policyId!],
+      authorization_context: authorizationContext(),
+    });
+    return { id: updated.id, policy_ids: updated.policy_ids };
+  }),
   await attempt("relayer policy accepted by Privy (placeholder address, deleted after)", async () => {
     const created = await privy.policies().create(relayerPolicy({ clearingAddress: outsider, abi: ariaClearingAbi }));
     await privy.policies().delete(created.id, {});
