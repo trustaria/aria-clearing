@@ -2,6 +2,7 @@ import {
   createPublicClient,
   getAbiItem,
   http,
+  isAddressEqual,
   keccak256,
   toBytes,
   type Address,
@@ -79,8 +80,30 @@ export interface EventView {
   loggedAt: bigint;
 }
 
+/** Values the reader saw, e.g. from the card's data-aria-receipt JSON. */
+export interface ExpectedReceipt {
+  chainId?: number;
+  contract?: string;
+  campaignId?: string;
+  claimsHash?: string;
+  rationaleHash?: string;
+}
+
+export type SeenField = keyof ExpectedReceipt;
+
+export interface SeenCheck {
+  field: SeenField;
+  expected: string;
+  /** The logged value; null when it could not be read. */
+  actual: string | null;
+  matches: boolean;
+}
+
 export interface ReceiptInput {
   campaign: CampaignCreatedData;
+  /** Contract and chain the logs were read from; compared with `expected`. */
+  contract?: Address;
+  chainId?: number;
   /** claimsHash from the contract's campaign view. */
   claimsHashOnChain?: Hex;
   events: EventLoggedData[];
@@ -125,7 +148,12 @@ export interface LifecycleStep extends Located {
 
 export interface Receipt {
   requestId: string;
+  /** consistent, and every `seen` check matches when values were expected. */
   ok: boolean;
+  /** The logged records agree with each other and with the contract's state. */
+  consistent: boolean;
+  /** Each expected value against what was logged; null when nothing was expected. */
+  seen: SeenCheck[] | null;
   campaign: {
     campaignId: Hex;
     advertiser: Address;
@@ -168,8 +196,66 @@ function claimsMatchOf(campaign: CampaignCreatedData, onChain?: Hex): boolean | 
   return checks.length === 0 ? null : checks.every(Boolean);
 }
 
-/** Recomputes every hash from the decoded logs and assembles the receipt. Pure. */
-export function buildReceipt(requestId: string, input: ReceiptInput): Receipt {
+const sameHex = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+
+function sameAddress(a: string, b: string): boolean {
+  try {
+    return isAddressEqual(a as Address, b as Address);
+  } catch {
+    return false;
+  }
+}
+
+function check(field: SeenField, expected: string, actual: string | null, matches: boolean): SeenCheck {
+  return { field, expected, actual, matches };
+}
+
+/**
+ * Compares each expected value with the logged one. The rationaleHash must be the one every
+ * logged event of the request carries. Pure.
+ */
+export function compareSeen(
+  expected: ExpectedReceipt,
+  receipt: Pick<Receipt, "campaign" | "events">,
+  source: { contract?: string; chainId?: number } = {},
+): SeenCheck[] {
+  const checks: SeenCheck[] = [];
+  if (expected.chainId !== undefined) {
+    const actual = source.chainId ?? null;
+    checks.push(check("chainId", String(expected.chainId), actual === null ? null : String(actual), actual === expected.chainId));
+  }
+  if (expected.contract !== undefined) {
+    const actual = source.contract ?? null;
+    checks.push(check("contract", expected.contract, actual, actual !== null && sameAddress(actual, expected.contract)));
+  }
+  if (expected.campaignId !== undefined) {
+    const actual = receipt.campaign.campaignId;
+    checks.push(check("campaignId", expected.campaignId, actual, sameHex(actual, expected.campaignId)));
+  }
+  if (expected.claimsHash !== undefined) {
+    const actual = receipt.campaign.claimsHash;
+    checks.push(check("claimsHash", expected.claimsHash, actual, sameHex(actual, expected.claimsHash)));
+  }
+  if (expected.rationaleHash !== undefined) {
+    const logged = [...new Set(receipt.events.map((e) => e.rationaleHash.toLowerCase()))];
+    const matches = logged.length === 1 && sameHex(logged[0], expected.rationaleHash);
+    checks.push(check("rationaleHash", expected.rationaleHash, logged.length === 0 ? null : logged.join(", "), matches));
+  }
+  return checks;
+}
+
+/** The receipt with `seen` set from `expected` and folded into `ok`. Pure. */
+export function withExpected(
+  receipt: Receipt,
+  expected: ExpectedReceipt | undefined,
+  source: { contract?: string; chainId?: number } = {},
+): Receipt {
+  const seen = expected ? compareSeen(expected, receipt, source) : null;
+  return { ...receipt, seen, ok: receipt.consistent && (seen === null || seen.every((c) => c.matches)) };
+}
+
+/** Recomputes every hash from the decoded logs, compares any expected values and assembles the receipt. Pure. */
+export function buildReceipt(requestId: string, input: ReceiptInput, expected?: ExpectedReceipt): Receipt {
   const { campaign } = input;
   const claimLines = campaign.claims === null ? null : campaign.claims.split("\n");
   const claimsMatch = claimsMatchOf(campaign, input.claimsHashOnChain);
@@ -232,16 +318,18 @@ export function buildReceipt(requestId: string, input: ReceiptInput): Receipt {
     })),
   ].sort((a, b) => (a.blockNumber < b.blockNumber ? -1 : a.blockNumber > b.blockNumber ? 1 : 0));
 
-  const ok =
+  const consistent =
     claimsMatch !== false &&
     events.length > 0 &&
     events.every(
       (e) => e.eventIdMatches && e.rationaleMatches && e.claimRefsValid && e.campaignMatches && e.viewMatches,
     );
 
-  return {
+  const receipt: Receipt = {
     requestId,
-    ok,
+    ok: consistent,
+    consistent,
+    seen: null,
     campaign: {
       campaignId: campaign.campaignId,
       advertiser: campaign.advertiser,
@@ -253,6 +341,7 @@ export function buildReceipt(requestId: string, input: ReceiptInput): Receipt {
     events,
     lifecycle,
   };
+  return withExpected(receipt, expected, { contract: input.contract, chainId: input.chainId });
 }
 
 /** Splits the inclusive range [from, to] into inclusive chunks of at most `size` blocks. */
@@ -374,6 +463,8 @@ export interface VerifyOptions {
   settlementScanChunks?: number;
   /** Replaces the client built from rpcUrl (tests, shared clients). */
   client?: PublicClient;
+  /** Values the reader saw (card receipt, sentence hash); each is compared with what was logged. */
+  expected?: ExpectedReceipt;
 }
 
 const campaignCreatedEvent = getAbiItem({ abi: ariaClearingAbi, name: "CampaignCreated" });
@@ -531,7 +622,10 @@ export async function verifyReceipt(requestId: string, options: VerifyOptions): 
   ]);
 
   const created = campaignLogs[0];
+  const chainId = options.expected?.chainId === undefined ? undefined : await client.getChainId();
   return buildReceipt(requestId, {
+    contract: address,
+    chainId,
     campaign: {
       campaignId,
       advertiser: created?.args.advertiser ?? campaignView.advertiser,
@@ -554,5 +648,5 @@ export async function verifyReceipt(requestId: string, options: VerifyOptions): 
       blockNumber: log.blockNumber,
       txHash: log.transactionHash,
     })),
-  });
+  }, options.expected);
 }

@@ -17,7 +17,7 @@ import {
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { foundry } from "viem/chains";
-import { claimsHash, eventIdOf, formatClaims, Kind } from "../src/hash";
+import { claimsHash, eventIdOf, formatClaims, Kind, rationaleHash } from "../src/hash";
 import { verifyReceipt } from "../src/verify";
 
 // Anvil's first dev account.
@@ -176,6 +176,41 @@ describe.skipIf(!hasFoundry)("verifyReceipt against anvil", () => {
     });
 
     expect(receipt.campaign.claims).toBe(lateClaims);
+  });
+
+  it("matches the card's receipt, chain id and contract included", async () => {
+    const receipt = await verifyReceipt(requestId, {
+      rpcUrl: RPC,
+      address: emitter,
+      fromBlock: 0n,
+      maxRange: 7n,
+      expected: {
+        chainId: foundry.id,
+        contract: emitter,
+        campaignId,
+        claimsHash: claimsHash(claims),
+        rationaleHash: rationaleHash(rationale),
+      },
+    });
+
+    expect(receipt.seen!.every((c) => c.matches)).toBe(true);
+    expect(receipt.ok).toBe(true);
+  });
+
+  it("fails when the sentence the reader saw is not the one logged", async () => {
+    const receipt = await verifyReceipt(requestId, {
+      rpcUrl: RPC,
+      address: emitter,
+      fromBlock: 0n,
+      maxRange: 7n,
+      expected: { rationaleHash: rationaleHash("Kids under 12 stay free.") },
+    });
+
+    expect(receipt.consistent).toBe(true);
+    expect(receipt.seen).toEqual([
+      expect.objectContaining({ field: "rationaleHash", actual: keccak256(toBytes(rationale)), matches: false }),
+    ]);
+    expect(receipt.ok).toBe(false);
   });
 
   it("reports an unknown requestId", async () => {

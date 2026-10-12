@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { keccak256, toBytes } from "viem";
-import { claimsHash, eventIdOf, formatClaims, Kind, requestKeyOf } from "../src/hash";
+import { claimsHash, eventIdOf, formatClaims, Kind, rationaleHash, requestKeyOf } from "../src/hash";
 import {
   buildReceipt,
+  withExpected,
   chunkRange,
   findBlockAtTimestamp,
   scanBackward,
@@ -191,6 +192,113 @@ describe("buildReceipt", () => {
     );
 
     expect(receipt.lifecycle.map((step) => step.stage)).toEqual(["campaign", "logged", "disputed", "settled"]);
+  });
+});
+
+describe("buildReceipt with expected values", () => {
+  const contract = "0xfb6bA8e6c48c806AFC40aFee5F85deE42Ce8F2fb";
+  const seenInput = input({ contract, chainId: 10143 });
+  const cardReceipt = {
+    chainId: 10143,
+    contract,
+    campaignId,
+    claimsHash: claimsHash(claims),
+    rationaleHash: rationaleHash(rationale),
+  };
+  const otherHash = keccak256(toBytes("something else"));
+
+  it("has no seen checks and stays ok without expected values", () => {
+    const receipt = buildReceipt(requestId, seenInput);
+
+    expect(receipt.seen).toBeNull();
+    expect(receipt.consistent).toBe(true);
+    expect(receipt.ok).toBe(true);
+  });
+
+  it("matches every field of the card's receipt", () => {
+    const receipt = buildReceipt(requestId, seenInput, cardReceipt);
+
+    expect(receipt.seen).toEqual([
+      { field: "chainId", expected: "10143", actual: "10143", matches: true },
+      { field: "contract", expected: contract, actual: contract, matches: true },
+      { field: "campaignId", expected: campaignId, actual: campaignId, matches: true },
+      { field: "claimsHash", expected: claimsHash(claims), actual: claimsHash(claims), matches: true },
+      { field: "rationaleHash", expected: rationaleHash(rationale), actual: rationaleHash(rationale), matches: true },
+    ]);
+    expect(receipt.ok).toBe(true);
+  });
+
+  it("compares hex and addresses case-insensitively", () => {
+    const receipt = buildReceipt(requestId, seenInput, {
+      contract: contract.toLowerCase(),
+      rationaleHash: rationaleHash(rationale).toUpperCase().replace("0X", "0x"),
+    });
+
+    expect(receipt.seen!.every((c) => c.matches)).toBe(true);
+  });
+
+  it.each([
+    ["chainId", { chainId: 1 }],
+    ["contract", { contract: "0x0000000000000000000000000000000000000001" }],
+    ["campaignId", { campaignId: keccak256(toBytes("other-campaign")) }],
+    ["claimsHash", { claimsHash: otherHash }],
+    ["rationaleHash", { rationaleHash: otherHash }],
+  ] as const)("flags a %s that differs from the logged one", (field, override) => {
+    const receipt = buildReceipt(requestId, seenInput, { ...cardReceipt, ...override });
+
+    expect(receipt.seen!.filter((c) => !c.matches).map((c) => c.field)).toEqual([field]);
+    expect(receipt.consistent).toBe(true);
+    expect(receipt.ok).toBe(false);
+  });
+
+  it("does not match a chainId or contract it was not told about", () => {
+    const receipt = buildReceipt(requestId, input(), { chainId: 10143, contract });
+
+    expect(receipt.seen).toEqual([
+      { field: "chainId", expected: "10143", actual: null, matches: false },
+      { field: "contract", expected: contract, actual: null, matches: false },
+    ]);
+  });
+
+  it("requires every logged event to carry the expected rationaleHash", () => {
+    const click = eventLog({
+      eventId: eventIdOf(requestId, Kind.Click),
+      kind: Kind.Click,
+      rationale: "A different sentence.",
+      rationaleHash: keccak256(toBytes("A different sentence.")),
+    });
+    const receipt = buildReceipt(requestId, input({ events: [eventLog(), click] }), {
+      rationaleHash: rationaleHash(rationale),
+    });
+
+    expect(receipt.seen![0].matches).toBe(false);
+    expect(receipt.ok).toBe(false);
+  });
+
+  it("matches the hash of a sentence the reader copied with extra spaces or decomposed accents", () => {
+    const accented = "Café Lumen: kids under 6 stay free.";
+    const logged = eventLog({ rationale: accented, rationaleHash: keccak256(toBytes(accented)) });
+    const copied = `  ${accented.normalize("NFD")}\n`;
+    const receipt = buildReceipt(requestId, input({ events: [logged] }), { rationaleHash: rationaleHash(copied) });
+
+    expect(receipt.seen![0].matches).toBe(true);
+  });
+
+  it("withExpected adds seen checks to an already built receipt", () => {
+    const built = buildReceipt(requestId, seenInput);
+
+    expect(withExpected(built, { rationaleHash: otherHash }).ok).toBe(false);
+    expect(withExpected(built, { rationaleHash: rationaleHash(rationale) }).ok).toBe(true);
+    expect(withExpected(built, undefined).seen).toBeNull();
+  });
+
+  it("is not ok when the logged event is inconsistent even if the expected values match", () => {
+    const tampered = eventLog({ rationaleHash: otherHash });
+    const receipt = buildReceipt(requestId, input({ events: [tampered] }), { rationaleHash: otherHash });
+
+    expect(receipt.seen![0].matches).toBe(true);
+    expect(receipt.consistent).toBe(false);
+    expect(receipt.ok).toBe(false);
   });
 });
 
