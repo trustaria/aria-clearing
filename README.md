@@ -97,7 +97,7 @@ shows only what was logged.
    enough for the advertiser's fraud tooling to review events, and still far faster than ad-network payment terms.
 4. **Verification.** A **Chainlink CRE workflow** reads all pending events in one call, fetches their evidence in
    one HTTP request, applies the rule (impression: viewed ≥ 1 s at ≥ 50 %; click: went through the redirect),
-   and writes one report through the Chainlink forwarder to `onReport`.
+   and writes one report through the CRE forwarder (the mock forwarder on Monad testnet) to `onReport`.
 5. **Payout.** In the same transaction, released events pay the app's account directly (`PaidOut`); rejected
    and disputed events return to the advertiser's budget. Aria's fee is taken only here, on verified events:
    20 % of the price, fixed when the contract is deployed (the constructor refuses more than 30 %). The app
@@ -295,7 +295,8 @@ Tests: `pnpm test` (receipt, indexer, ops, web; the indexer needs Node ≥ 22.15
 
 ## Demo controls
 
-`/?debug=1` (or Ctrl+Shift+D) opens a debug bar: **Forge impression** (an impression posted for a card that was
+`/?debug=1` (or Ctrl+Shift+D) opens a debug bar; when `ARIA_DEMO_KEY` is set, as on the live site, only
+`/?debug=<ARIA_DEMO_KEY>` opens it. It has **Forge impression** (an impression posted for a card that was
 never seen, as a dishonest publisher backend could), **Dispute** (the advertiser disputes an event) and
 **Relayer tries to pay** (shows the Privy policy denial). Tick **Hold views** before forging, otherwise the
 card is viewed as soon as it appears.
