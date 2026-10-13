@@ -99,7 +99,7 @@ importers:
         version: 14.2.35(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       openai:
         specifier: 6.49.0
-        version: 6.49.0(ws@8.18.0(bufferutil@4.1.0)(utf-8-validate@6.0.6))(zod@3.25.76)
+        version: 6.49.0(ws@8.21.0(bufferutil@4.1.0)(utf-8-validate@6.0.6))(zod@3.25.76)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -1712,12 +1712,12 @@ packages:
     resolution: {integrity: sha512-Ch+e8t097FdTfuihfRwBMqz/OfRZKHOH/C213dbM1lXDZ8bv6r330Bcc9k9XCrP6NkoMYy0/ZCHcddOAPihW4w==}
 
   '@trustaria/core@file:vendor/trustaria-core-0.3.0-pre.tgz':
-    resolution: {integrity: sha512-Bc4E3IpZNnRTvMZPlmbWH5I/0WdzAtwIgYJLZDZmrKThgWVmIaZZYFuge7OmeGk28OOQ8mX5qlivwQJ2nfKmjw==, tarball: file:vendor/trustaria-core-0.3.0-pre.tgz}
+    resolution: {integrity: sha512-5kZ+CVWv/n1bjQezf1tGO39HCVVUfr0DX4NgQ27OGhlSgXBMSMTkkFOa7pkzadQTZfIm5ezk5AKhGkaFFAGQIw==, tarball: file:vendor/trustaria-core-0.3.0-pre.tgz}
     version: 0.2.0
     engines: {node: '>=22'}
 
   '@trustaria/react@file:vendor/trustaria-react-0.3.0-pre.tgz':
-    resolution: {integrity: sha512-4zQOpEQszv/AloWPAYj8sQ8VW7BYxJ+CfpXY2VPXhQtT2qSJ/4FBHiSZFaQw61ZFc0Jm68+Wu/LgqjR9MU2zew==, tarball: file:vendor/trustaria-react-0.3.0-pre.tgz}
+    resolution: {integrity: sha512-j3SX7rSWxm0vNcx/EU9hd6gBZirCW/JFh/Hjw4hPntksL0fU5pC2iPypL887ohQeqB39pF1jQ68s0ba8QqLanw==, tarball: file:vendor/trustaria-react-0.3.0-pre.tgz}
     version: 0.2.0
     engines: {node: '>=22'}
     peerDependencies:
@@ -9943,9 +9943,9 @@ snapshots:
     dependencies:
       wrappy: 1.0.2
 
-  openai@6.49.0(ws@8.18.0(bufferutil@4.1.0)(utf-8-validate@6.0.6))(zod@3.25.76):
+  openai@6.49.0(ws@8.21.0(bufferutil@4.1.0)(utf-8-validate@6.0.6))(zod@3.25.76):
     optionalDependencies:
-      ws: 8.18.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)
+      ws: 8.21.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)
       zod: 3.25.76
 
   optionator@0.9.4:
