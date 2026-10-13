@@ -4,7 +4,7 @@ import { describeCampaigns, type Campaign } from "./campaigns";
 import { kimiLimiter } from "./kimi-limiter";
 import { MAX_RATIONALE, parsePickJson, validatePick, type Pick } from "./pick";
 import type { CardData } from "./receipt";
-import { stubAnswer, stubPick } from "./stub";
+import { FALLBACK_ANSWER, STUB_ANSWER, stubAnswer, stubPick } from "./stub";
 
 export type ChatMessage = { role: "user" | "assistant"; content: string };
 
@@ -15,6 +15,7 @@ export type ChatFrame =
   | { type: "meta"; requestId: string; model: ModelName }
   | { type: "text"; delta: string }
   | { type: "card"; card: CardData }
+  | { type: "notice"; message: string }
   | { type: "error"; message: string }
   | { type: "done" };
 
@@ -187,6 +188,18 @@ export function parseTurnPick(payload: string | null, campaigns: Campaign[]): Pi
 
 export type TurnEvent = { type: "text"; delta: string } | { type: "pick"; pick: Pick | null };
 
+/** A fixed answer streamed word by word, then the keyword pick for the latest user message. */
+async function* stubTurn(answer: string, messages: ChatMessage[], campaigns: Campaign[]): AsyncGenerator<TurnEvent> {
+  for await (const delta of stubAnswer(answer)) yield { type: "text", delta };
+  const question = messages[messages.length - 1]?.content ?? "";
+  yield { type: "pick", pick: validatePick(stubPick(question, campaigns), campaigns) };
+}
+
+/** The turn shown when KIMI cannot answer: the fallback answer and the keyword pick. */
+export function fallbackTurn(messages: ChatMessage[], campaigns: Campaign[]): AsyncGenerator<TurnEvent> {
+  return stubTurn(FALLBACK_ANSWER, messages, campaigns);
+}
+
 /**
  * One chat turn: streams the answer text, then yields the validated pick.
  * KIMI answers and picks in one streamed request; the stub answers with fixed text and picks by keyword.
@@ -198,9 +211,7 @@ export async function* streamTurn(
   signal: AbortSignal,
 ): AsyncGenerator<TurnEvent> {
   if (model === "stub") {
-    for await (const delta of stubAnswer()) yield { type: "text", delta };
-    const question = messages[messages.length - 1]?.content ?? "";
-    yield { type: "pick", pick: validatePick(stubPick(question, campaigns), campaigns) };
+    yield* stubTurn(STUB_ANSWER, messages, campaigns);
     return;
   }
   const { value: stream, release } = await kimiLimiter().start(

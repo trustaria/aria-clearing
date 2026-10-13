@@ -11,6 +11,7 @@ type Turn = {
   content: string;
   requestId?: string;
   card?: CardData;
+  notice?: string;
   error?: string;
   pending?: boolean;
 };
@@ -65,7 +66,8 @@ export default function Chat({
     const text = question.trim();
     if (!text || busy) return;
     const history: ChatMessage[] = [
-      ...turns.filter((t) => !t.error).map(({ role, content }) => ({ role, content })),
+      // Failed and fallback answers stay out of the model's history.
+      ...turns.filter((t) => !t.error && !t.notice).map(({ role, content }) => ({ role, content })),
       { role: "user", content: text },
     ];
     setTurns((all) => [...all, { role: "user", content: text }, { role: "assistant", content: "", pending: true }]);
@@ -86,6 +88,8 @@ export default function Chat({
           updateLast((t) => ({ ...t, content: t.content + frame.delta }));
         } else if (frame.type === "card") {
           updateLast((t) => ({ ...t, card: frame.card }));
+        } else if (frame.type === "notice") {
+          updateLast((t) => ({ ...t, notice: frame.message }));
         } else if (frame.type === "error") {
           updateLast((t) => ({ ...t, error: frame.message }));
         }
@@ -146,6 +150,7 @@ export default function Chat({
               </div>
             ) : (
               <div key={i} data-request-id={turn.requestId}>
+                {turn.notice && <p className="mb-1 text-xs text-amber-700 dark:text-amber-400">{turn.notice}</p>}
                 <div className="whitespace-pre-wrap leading-relaxed">
                   {turn.content}
                   {turn.pending && !turn.content && <span className="text-neutral-400">Thinking…</span>}

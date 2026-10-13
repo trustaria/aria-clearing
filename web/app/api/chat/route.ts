@@ -1,9 +1,10 @@
 import { allCampaigns, campaignBySlug } from "@/lib/campaigns";
-import { activeModel, streamTurn, type ChatFrame, type ChatMessage } from "@/lib/kimi";
+import { activeModel, fallbackTurn, streamTurn, type ChatFrame, type ChatMessage, type TurnEvent } from "@/lib/kimi";
 import type { Pick } from "@/lib/pick";
 import { buildCard, chainConfig } from "@/lib/receipt";
 import { newRequestId } from "@/lib/request-id";
 import { rememberServed } from "@/lib/served";
+import { KIMI_BUSY_NOTICE, KIMI_STOPPED_NOTICE } from "@/lib/stub";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -57,10 +58,13 @@ export async function POST(req: Request) {
         send({ type: "card", card });
       };
 
-      try {
-        for await (const event of streamTurn(model, messages, pickable, abort.signal)) {
-          if (event.type === "text") send({ type: "text", delta: event.delta });
-          else {
+      let sentText = false;
+      const relay = async (events: AsyncGenerator<TurnEvent>) => {
+        for await (const event of events) {
+          if (event.type === "text") {
+            sentText = true;
+            send({ type: "text", delta: event.delta });
+          } else {
             try {
               sendCard(event.pick);
             } catch (error) {
@@ -68,9 +72,28 @@ export async function POST(req: Request) {
             }
           }
         }
+      };
+
+      let failed = false;
+      try {
+        await relay(streamTurn(model, messages, pickable, abort.signal));
       } catch (error) {
         console.warn(`answer failed: ${(error as Error).message}`);
-        send({ type: "error", message: "The model is unavailable right now." });
+        failed = true;
+      }
+
+      // Text already shown stays with a notice; a turn with no text gets the fallback answer and keyword card.
+      if (!abort.signal.aborted && sentText) {
+        if (failed) send({ type: "notice", message: KIMI_STOPPED_NOTICE });
+      } else if (!abort.signal.aborted) {
+        if (!failed) console.warn("answer was empty");
+        send({ type: "notice", message: KIMI_BUSY_NOTICE });
+        try {
+          await relay(fallbackTurn(messages, pickable));
+        } catch (error) {
+          console.warn(`fallback failed: ${(error as Error).message}`);
+          send({ type: "error", message: "The model is unavailable right now." });
+        }
       }
 
       send({ type: "done" });

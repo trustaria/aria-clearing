@@ -3,12 +3,25 @@ import type { AddressInfo } from "node:net";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { POST as postDraft } from "../app/api/advertise/draft/route";
 import { POST as chat } from "../app/api/chat/route";
 import { draftClaims } from "../lib/claims-draft";
 import { createKimiLimiter, setKimiLimiter } from "../lib/kimi-limiter";
 import { PICK_SENTINEL, streamAnswer, streamTurn, type ChatFrame, type TurnEvent } from "../lib/kimi";
+import { readSite } from "../lib/site-reader";
+import { FALLBACK_ANSWER, KIMI_BUSY_NOTICE, KIMI_STOPPED_NOTICE } from "../lib/stub";
 import { campaigns, lisbon } from "./fixtures";
+
+vi.mock("@/lib/advertiser-auth", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../lib/advertiser-auth")>()),
+  verifyAdvertiser: async () => ({ userId: "did:privy:test" }),
+}));
+
+vi.mock("../lib/site-reader", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../lib/site-reader")>()),
+  readSite: vi.fn(),
+}));
 
 type Reply = (req: IncomingMessage, res: ServerResponse) => void;
 
@@ -55,6 +68,39 @@ const rateLimited: Reply = (_req, res) => {
   res.setHeader("Content-Type", "application/json");
   res.end(JSON.stringify({ error: { message: "request reached organization max RPM: 3, please try again after 1 seconds" } }));
 };
+
+/** A 429 asking to wait longer than any request deadline. */
+const rateLimitedFor = (seconds: number): Reply => (_req, res) => {
+  res.statusCode = 429;
+  res.setHeader("Content-Type", "application/json");
+  res.end(JSON.stringify({ error: { message: `rate limited, please try again after ${seconds} seconds` } }));
+};
+
+const serverError: Reply = (_req, res) => {
+  res.statusCode = 500;
+  res.setHeader("Content-Type", "application/json");
+  res.end(JSON.stringify({ error: { message: "internal error" } }));
+};
+
+/** Streams one delta, then drops the connection. */
+const brokenStream = (delta: string): Reply => (_req, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  const chunk = { id: "x", object: "chat.completion.chunk", created: 0, model: "kimi-test", choices: [{ index: 0, delta: { content: delta } }] };
+  res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+  setTimeout(() => res.destroy(), 20);
+};
+
+function expectFallback(frames: ChatFrame[], slug: string | null) {
+  expect(frames[0]).toMatchObject({ type: "meta" });
+  expect(frames[1]).toEqual({ type: "notice", message: KIMI_BUSY_NOTICE });
+  const text = frames.flatMap((f) => (f.type === "text" ? [f.delta] : [])).join("");
+  expect(text).toBe(FALLBACK_ANSWER);
+  expect(frames.some((f) => f.type === "error")).toBe(false);
+  const card = frames.find((f) => f.type === "card");
+  if (slug) expect(card).toMatchObject({ card: { slug } });
+  else expect(card).toBeUndefined();
+  expect(frames.at(-1)).toEqual({ type: "done" });
+}
 
 const RATIONALE = "Every package includes airport transfers.";
 const PICK_LINE = `${PICK_SENTINEL}${JSON.stringify({ intent: "commercial", slug: lisbon.slug, claimRefs: [4], rationale: RATIONALE })}`;
@@ -169,14 +215,70 @@ describe("/api/chat with KIMI", () => {
     expect(calls).toBe(2);
   });
 
-  it("sends the error frame when no slot opens before the deadline", async () => {
+  it("shows the fallback answer and keyword card when no slot opens before the deadline", async () => {
     setKimiLimiter(createKimiLimiter({ rpm: 1, concurrency: 1 }));
     reply = sse;
     await readFrames(await ask("first"));
-    const frames = await readFrames(await ask("second"));
-    expect(frames.map((f) => f.type)).toEqual(["meta", "error", "done"]);
-    expect(frames[1]).toEqual({ type: "error", message: "The model is unavailable right now." });
+    const frames = await readFrames(await ask("Planning a family trip to Lisbon"));
+    expectFallback(frames, lisbon.slug);
     expect(bodies).toHaveLength(1);
+  });
+
+  it("shows the fallback answer when KIMI keeps answering 429", async () => {
+    reply = rateLimitedFor(120);
+    expectFallback(await readFrames(await ask("Planning a family trip to Lisbon")), lisbon.slug);
+  });
+
+  it("shows the fallback answer without a card when KIMI fails and no campaign matches", async () => {
+    reply = serverError;
+    expectFallback(await readFrames(await ask("What's the difference between RAM and storage?")), null);
+  });
+
+  it("shows the fallback answer when KIMI streams no text", async () => {
+    reply = sseOf([]);
+    expectFallback(await readFrames(await ask("hi")), null);
+  });
+
+  it("keeps the streamed text and adds a notice when KIMI stops mid-answer", async () => {
+    reply = brokenStream("Book the hotel first.");
+    const frames = await readFrames(await ask("Planning Lisbon with kids, what should I book?"));
+    expect(frames.map((f) => f.type)).toEqual(["meta", "text", "notice", "done"]);
+    expect(frames[1]).toEqual({ type: "text", delta: "Book the hotel first." });
+    expect(frames[2]).toEqual({ type: "notice", message: KIMI_STOPPED_NOTICE });
+  });
+});
+
+describe("/api/advertise/draft when KIMI is unavailable", () => {
+  const post = (body: unknown) =>
+    postDraft(new Request("http://localhost/api/advertise/draft", { method: "POST", body: JSON.stringify(body) }));
+  const description = "Family trips to Lisbon with airport transfers, kids clubs and hotels near the beach.";
+
+  it.each([
+    ["a 429", () => rateLimitedFor(120)],
+    ["a server error", () => serverError],
+  ])("answers manual claims on %s", async (_name, make) => {
+    reply = make();
+    const res = await post({ brand: "Tagus", url: "https://example.com", description });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ manual: true });
+  });
+
+  it("answers manual claims when no slot opens before the deadline", async () => {
+    setKimiLimiter(createKimiLimiter({ rpm: 1, concurrency: 1 }));
+    reply = serverError;
+    await post({ brand: "Tagus", url: "https://example.com", description });
+    const res = await post({ brand: "Tagus", url: "https://example.com", description });
+    expect(await res.json()).toEqual({ manual: true });
+  });
+
+  it("answers the website manual-entry reason when KIMI fails", async () => {
+    vi.mocked(readSite).mockResolvedValue({
+      site: { url: "https://example.com", title: "Tagus", description: "", ogTitle: "", ogDescription: "", siteName: "", text: description },
+    });
+    reply = rateLimitedFor(120);
+    const res = await post({ url: "https://example.com" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ manual: true, reason: "draft_failed" });
   });
 });
 
