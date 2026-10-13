@@ -39,6 +39,7 @@ const lateRequestId = "req_late";
 const lateClaims = formatClaims(["Free airport pickup.", "Late checkout until 2pm."]);
 const lateCampaignId = keccak256(toBytes("hotel-late"));
 const lateRationale = "Free airport pickup.";
+const badSplitRequestId = "req_bad_split";
 // One second between blocks keeps timestamps strictly increasing, as the block search needs.
 const mine = (client: PublicClient, blocks: number) =>
   client.request({ method: "anvil_mine" as never, params: [`0x${blocks.toString(16)}`, "0x1"] as never });
@@ -88,7 +89,18 @@ describe.skipIf(!hasFoundry)("verifyReceipt against anvil", () => {
       [1],
     ]);
     for (let i = 0; i < 30; i++) await client.request({ method: "evm_mine" as never, params: [] as never });
-    await send("eventSettled", [eventIdOf(requestId, Kind.Impression), 3]);
+    await send("eventReleased", [eventIdOf(requestId, Kind.Impression), 8_000n, 2_000n]);
+    await mine(client, 2);
+    await send("eventLogged", [
+      eventIdOf(badSplitRequestId, Kind.Impression),
+      campaignId,
+      badSplitRequestId,
+      Kind.Impression,
+      rationale,
+      keccak256(toBytes(rationale)),
+      [1],
+    ]);
+    await send("eventReleased", [eventIdOf(badSplitRequestId, Kind.Impression), 9_000n, 2_000n]);
 
     // A campaign created long after deploy.
     await mine(client, 1500);
@@ -119,6 +131,18 @@ describe.skipIf(!hasFoundry)("verifyReceipt against anvil", () => {
     expect(receipt.events[0].eventId).toBe(eventIdOf(requestId, Kind.Impression));
     expect(receipt.events[0].settledTx).toBeDefined();
     expect(receipt.campaign.claims).toBe(claims);
+    expect(receipt.feeBps).toBe(2000);
+    expect(receipt.events[0].payout).toMatchObject({ amount: 8_000n, fee: 2_000n, deferred: false });
+    expect(receipt.events[0].splitMatches).toBe(true);
+  });
+
+  it("fails when the logged payout does not add up to the price", async () => {
+    const receipt = await verifyReceipt(badSplitRequestId, { rpcUrl: RPC, address: emitter, fromBlock: 0n, maxRange: 7n });
+
+    expect(receipt.events[0].status).toBe("released");
+    expect(receipt.events[0].payout).toMatchObject({ amount: 9_000n, fee: 2_000n });
+    expect(receipt.events[0].splitMatches).toBe(false);
+    expect(receipt.ok).toBe(false);
   });
 
   it("keeps the view's status when the settlement tx is outside the scanned window", async () => {

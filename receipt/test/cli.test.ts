@@ -183,6 +183,44 @@ describe("formatReceipt", () => {
     expect(seenHeadline(receipt)).toBe("✓ The card's receipt matches what was logged");
   });
 
+  describe("payment split", () => {
+    const eventId = eventIdOf(requestId, Kind.Impression);
+    const publisher = "0x00000000000000000000000000000000000000a1";
+    const withPayout = (amount: bigint, fee: bigint, deferred = false): ReceiptInput => ({
+      ...input(),
+      feeBps: 2000,
+      payouts: [{ eventId, publisher, amount, fee, deferred, blockNumber: 3n, txHash: "0x51" }],
+    });
+
+    it("shows what the publisher received and the Aria fee", () => {
+      const lines = formatReceipt(buildReceipt(requestId, withPayout(8_000n, 2_000n))).split("\n");
+
+      expect(lines).toContain("  ✓ publisher amount + Aria fee = price");
+      expect(lines).toContain(`      paid  $0.0080 to ${publisher} · Aria fee $0.0020 (20 %)`);
+    });
+
+    it("says when the publisher's amount was credited instead of sent", () => {
+      const text = formatReceipt(buildReceipt(requestId, withPayout(8_000n, 2_000n, true)));
+
+      expect(text).toContain(`      credited  $0.0080 to ${publisher} (transfer failed, claimable) · Aria fee $0.0020 (20 %)`);
+    });
+
+    it("marks a split that does not add up and ends on a mismatch", () => {
+      const receipt = buildReceipt(requestId, withPayout(9_000n, 2_000n));
+      const lines = formatReceipt(receipt).split("\n");
+
+      expect(receipt.ok).toBe(false);
+      expect(lines).toContain("  ✗ publisher amount + Aria fee = price");
+      expect(lines.at(-1)).toBe("✗ MISMATCH: the logged event is not internally consistent");
+    });
+
+    it("prints sub-cent amounts to the unit", () => {
+      const text = formatReceipt(buildReceipt(requestId, { ...withPayout(1n, 0n), feeBps: 2000, events: [{ ...input().events[0], price: 1n }], views: {} }));
+
+      expect(text).toContain(`paid  $0.000001 to ${publisher} · Aria fee $0.0000 (20 %)`);
+    });
+  });
+
   it("calls the plain check internal consistency, not verification", () => {
     const text = formatReceipt(buildReceipt(requestId, input()));
 

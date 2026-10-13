@@ -1,7 +1,31 @@
 import { Kind } from "./hash";
-import type { Receipt } from "./verify";
+import type { Receipt, ReceiptEvent } from "./verify";
 
 const mark = (pass: boolean) => (pass ? "✓" : "✗");
+
+const USDC_UNIT = 1_000_000n;
+
+/** USDC base units as dollars with four to six decimals, e.g. 8000n → "$0.0080", 1n → "$0.000001". */
+export function usd(amount: bigint): string {
+  const fraction = (amount % USDC_UNIT).toString().padStart(6, "0").replace(/0+$/, "").padEnd(4, "0");
+  return `$${amount / USDC_UNIT}.${fraction}`;
+}
+
+/** Basis points as a percentage, e.g. 2000 → "20 %". */
+function percent(bps: number): string {
+  return `${bps / 100} %`;
+}
+
+/** The payout line, e.g. "paid  $0.0080 to 0x… · Aria fee $0.0020 (20 %)". */
+function splitLine(event: ReceiptEvent, feeBps: number | null): string | null {
+  if (!event.payout) return null;
+  const { amount, fee, deferred } = event.payout;
+  const rate = feeBps === null ? "" : ` (${percent(feeBps)})`;
+  const paid = deferred
+    ? `credited  ${usd(amount)} to ${event.publisher} (transfer failed, claimable)`
+    : `paid  ${usd(amount)} to ${event.publisher}`;
+  return `${paid} · Aria fee ${usd(fee)}${rate}`;
+}
 
 /** What happened to the money, from the most cautious event. */
 function paymentOf(receipt: Receipt): string {
@@ -68,6 +92,11 @@ export function formatReceipt(receipt: Receipt, options: FormatOptions = {}): st
     for (const claim of event.citedClaims) lines.push(`      cites: ${claim}`);
     lines.push(`  ${mark(event.viewMatches)} contract state agrees with the logged event`);
     lines.push(`      publisher ${event.publisher}, price ${event.price}`);
+    const split = splitLine(event, receipt.feeBps);
+    if (split) {
+      lines.push(`  ${mark(event.splitMatches)} publisher amount + Aria fee = price`);
+      lines.push(`      ${split}`);
+    }
   }
 
   lines.push("");

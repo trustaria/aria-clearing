@@ -44,6 +44,7 @@ contract Emitter {
     );
     event EventDisputed(bytes32 indexed eventId);
     event EventSettled(bytes32 indexed eventId, uint8 outcome);
+    event PaidOut(bytes32 indexed eventId, address indexed publisher, uint256 amount, uint256 fee);
 
     mapping(bytes32 => Campaign) private campaigns;
     mapping(bytes32 => ClearingEvent) private clearingEvents;
@@ -54,6 +55,10 @@ contract Emitter {
 
     function clearingEvent(bytes32 eventId) external view returns (ClearingEvent memory) {
         return clearingEvents[eventId];
+    }
+
+    function feeBps() external pure returns (uint16) {
+        return 2000;
     }
 
     function campaignCreated(bytes32 campaignId, string calldata claims, bytes32 claimsHash) external {
@@ -84,5 +89,12 @@ contract Emitter {
     function eventSettled(bytes32 eventId, uint8 outcome) external {
         clearingEvents[eventId].status = outcome;
         emit EventSettled(eventId, outcome);
+    }
+
+    /// Settles as released and pays out in the same transaction, with the caller's split.
+    function eventReleased(bytes32 eventId, uint256 amount, uint256 fee) external {
+        clearingEvents[eventId].status = 3;
+        emit EventSettled(eventId, 3);
+        emit PaidOut(eventId, clearingEvents[eventId].publisher, amount, fee);
     }
 }

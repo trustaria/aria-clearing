@@ -5,11 +5,13 @@ import {
   buildReceipt,
   withExpected,
   chunkRange,
+  feeOf,
   findBlockAtTimestamp,
   scanBackward,
   type CampaignCreatedData,
   type EventLoggedData,
   type EventView,
+  type PayoutData,
   type ReceiptInput,
 } from "../src/verify";
 
@@ -192,6 +194,96 @@ describe("buildReceipt", () => {
     );
 
     expect(receipt.lifecycle.map((step) => step.stage)).toEqual(["campaign", "logged", "disputed", "settled"]);
+  });
+});
+
+describe("buildReceipt payment split", () => {
+  const released = { eventId: impressionId, outcome: 3, blockNumber: 130n, txHash: "0x51" as const };
+  const paid = (overrides: Partial<PayoutData> = {}): PayoutData => ({
+    eventId: impressionId,
+    publisher,
+    amount: 8_000n,
+    fee: 2_000n,
+    deferred: false,
+    blockNumber: 130n,
+    txHash: "0x51",
+    ...overrides,
+  });
+  const split = (overrides: Partial<ReceiptInput> = {}) =>
+    buildReceipt(requestId, input({ settled: [released], payouts: [paid()], feeBps: 2000, ...overrides }));
+
+  it("passes when the publisher amount plus the Aria fee is the price at the contract's rate", () => {
+    const receipt = split();
+
+    expect(receipt.feeBps).toBe(2000);
+    expect(receipt.events[0].payout).toEqual({ amount: 8_000n, fee: 2_000n, deferred: false, txHash: "0x51" });
+    expect(receipt.events[0].splitMatches).toBe(true);
+    expect(receipt.ok).toBe(true);
+  });
+
+  it("fails when the publisher amount plus the fee is not the price", () => {
+    const receipt = split({ payouts: [paid({ amount: 9_000n })] });
+
+    expect(receipt.events[0].splitMatches).toBe(false);
+    expect(receipt.consistent).toBe(false);
+    expect(receipt.ok).toBe(false);
+  });
+
+  it("fails when the fee adds up but is not price * feeBps / 10000", () => {
+    const receipt = split({ payouts: [paid({ amount: 7_000n, fee: 3_000n })] });
+
+    expect(receipt.events[0].splitMatches).toBe(false);
+    expect(receipt.ok).toBe(false);
+  });
+
+  it("rounds the fee down", () => {
+    const receipt = split({
+      events: [eventLog({ price: 1n })],
+      payouts: [paid({ amount: 1n, fee: 0n })],
+    });
+
+    expect(receipt.events[0].splitMatches).toBe(true);
+  });
+
+  it("checks only the sum when the fee rate is unknown", () => {
+    const receipt = split({ feeBps: undefined, payouts: [paid({ amount: 7_000n, fee: 3_000n })] });
+
+    expect(receipt.feeBps).toBeNull();
+    expect(receipt.events[0].splitMatches).toBe(true);
+  });
+
+  it("reads a deferred payout the same way", () => {
+    const receipt = split({ payouts: [paid({ deferred: true })] });
+
+    expect(receipt.events[0].payout?.deferred).toBe(true);
+    expect(receipt.events[0].splitMatches).toBe(true);
+  });
+
+  it("stays ok when a released event's payout log was not found", () => {
+    const receipt = split({ payouts: [] });
+
+    expect(receipt.events[0].payout).toBeNull();
+    expect(receipt.events[0].splitMatches).toBe(true);
+    expect(receipt.ok).toBe(true);
+  });
+
+  it("fails when a rejected event was paid", () => {
+    const receipt = split({ settled: [{ ...released, outcome: 4 }] });
+
+    expect(receipt.events[0].status).toBe("rejected");
+    expect(receipt.events[0].splitMatches).toBe(false);
+  });
+
+  it("fails when the payout went to another publisher", () => {
+    const receipt = split({ payouts: [paid({ publisher: advertiser })] });
+
+    expect(receipt.events[0].splitMatches).toBe(false);
+  });
+
+  it("feeOf takes price * feeBps / 10000 rounded down", () => {
+    expect(feeOf(10_000n, 2000)).toBe(2_000n);
+    expect(feeOf(4n, 2000)).toBe(0n);
+    expect(feeOf(250_001n, 2000)).toBe(50_000n);
   });
 });
 

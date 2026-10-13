@@ -32,6 +32,8 @@ function event(overrides: Partial<ReceiptEvent>): ReceiptEvent {
     campaignMatches: true,
     price: 10_000n,
     status: "released",
+    payout: null,
+    splitMatches: true,
     loggedTx: TX(1),
     settledTx: TX(2),
     ...overrides,
@@ -54,6 +56,7 @@ function receipt(overrides: Partial<Receipt> = {}, events: ReceiptEvent[] = [eve
     },
     events,
     lifecycle: [],
+    feeBps: null,
     ...overrides,
   };
 }

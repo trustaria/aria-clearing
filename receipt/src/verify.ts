@@ -27,6 +27,7 @@ const STATUS_LOGGED = 1;
 const STATUS_DISPUTED = 2;
 const STATUS_RELEASED = 3;
 const STATUS_REJECTED = 4;
+const BPS = 10_000n;
 
 export type EventStatus = "logged" | "disputed" | "released" | "rejected";
 export type LifecycleStage = "campaign" | "logged" | "disputed" | "settled";
@@ -67,6 +68,17 @@ export interface EventSettledData extends Located {
   eventId: Hex;
   /** Status enum value: 3 Released, 4 Rejected. */
   outcome: number;
+}
+
+/** A PaidOut or PayoutDeferred log. */
+export interface PayoutData extends Located {
+  eventId: Hex;
+  publisher: Address;
+  /** What the publisher received, net of the Aria fee. */
+  amount: bigint;
+  fee: bigint;
+  /** PayoutDeferred: the transfer failed and the amount was credited for a later claim. */
+  deferred: boolean;
 }
 
 /** State of one event from the contract's clearingEvent view. */
@@ -111,6 +123,9 @@ export interface ReceiptInput {
   views?: Record<Hex, EventView>;
   disputed: EventDisputedData[];
   settled: EventSettledData[];
+  payouts?: PayoutData[];
+  /** The contract's fee rate in basis points; undefined when it could not be read. */
+  feeBps?: number;
 }
 
 export interface ReceiptEvent {
@@ -134,6 +149,13 @@ export interface ReceiptEvent {
   campaignMatches: boolean;
   price: bigint;
   status: EventStatus;
+  /** The payout log for this event; null when none was found. */
+  payout: { amount: bigint; fee: bigint; deferred: boolean; txHash: Hex } | null;
+  /**
+   * The payout went to the event's publisher on a released event, amount + fee equals the price, and the fee is
+   * price * feeBps / 10000 rounded down when feeBps is known. True when no payout log was found.
+   */
+  splitMatches: boolean;
   loggedTx: Hex;
   /** Undefined when no matching log was found in the scanned window. */
   disputedTx?: Hex;
@@ -169,6 +191,28 @@ export interface Receipt {
   };
   events: ReceiptEvent[];
   lifecycle: LifecycleStep[];
+  /** The contract's fee rate in basis points; null when it could not be read. */
+  feeBps: number | null;
+}
+
+/** The Aria fee on a released event's price, rounded down. */
+export function feeOf(price: bigint, feeBps: number): bigint {
+  return (price * BigInt(feeBps)) / BPS;
+}
+
+function splitMatchesOf(
+  event: EventLoggedData,
+  status: EventStatus,
+  payout: PayoutData | undefined,
+  feeBps: number | undefined,
+): boolean {
+  if (!payout) return true;
+  return (
+    status === "released" &&
+    payout.publisher.toLowerCase() === event.publisher.toLowerCase() &&
+    payout.amount + payout.fee === event.price &&
+    (feeBps === undefined || payout.fee === feeOf(event.price, feeBps))
+  );
 }
 
 function statusFromCode(code: number): EventStatus | undefined {
@@ -265,6 +309,8 @@ export function buildReceipt(requestId: string, input: ReceiptInput, expected?: 
       ? event.claimRefs.flatMap((ref) => (claimLines[ref - 1] === undefined ? [] : [claimLines[ref - 1]]))
       : [];
     const view = input.views?.[event.eventId];
+    const status = statusOf(event.eventId, input);
+    const payout = input.payouts?.find((p) => p.eventId === event.eventId);
     return {
       kind: event.kind,
       eventId: event.eventId,
@@ -283,7 +329,11 @@ export function buildReceipt(requestId: string, input: ReceiptInput, expected?: 
         (view.campaignId === event.campaignId && view.publisher === event.publisher && view.price === event.price),
       campaignMatches: event.campaignId === campaign.campaignId,
       price: event.price,
-      status: statusOf(event.eventId, input),
+      status,
+      payout: payout
+        ? { amount: payout.amount, fee: payout.fee, deferred: payout.deferred, txHash: payout.txHash }
+        : null,
+      splitMatches: splitMatchesOf(event, status, payout, input.feeBps),
       loggedTx: event.txHash,
       disputedTx: input.disputed.find((d) => d.eventId === event.eventId)?.txHash,
       settledTx: input.settled.find((s) => s.eventId === event.eventId)?.txHash,
@@ -322,7 +372,13 @@ export function buildReceipt(requestId: string, input: ReceiptInput, expected?: 
     claimsMatch !== false &&
     events.length > 0 &&
     events.every(
-      (e) => e.eventIdMatches && e.rationaleMatches && e.claimRefsValid && e.campaignMatches && e.viewMatches,
+      (e) =>
+        e.eventIdMatches &&
+        e.rationaleMatches &&
+        e.claimRefsValid &&
+        e.campaignMatches &&
+        e.viewMatches &&
+        e.splitMatches,
     );
 
   const receipt: Receipt = {
@@ -340,6 +396,7 @@ export function buildReceipt(requestId: string, input: ReceiptInput, expected?: 
     },
     events,
     lifecycle,
+    feeBps: input.feeBps ?? null,
   };
   return withExpected(receipt, expected, { contract: input.contract, chainId: input.chainId });
 }
@@ -459,7 +516,7 @@ export interface VerifyOptions {
   campaignBackScanChunks?: number;
   /** Block where the forward CampaignCreated scan starts; when set, the backward scan is skipped. */
   campaignFromBlock?: bigint;
-  /** Chunks scanned forward from the logged block for EventDisputed and EventSettled. */
+  /** Chunks scanned forward from the logged block for EventDisputed and EventSettled; payouts are read from the settling blocks. */
   settlementScanChunks?: number;
   /** Replaces the client built from rpcUrl (tests, shared clients). */
   client?: PublicClient;
@@ -471,6 +528,8 @@ const campaignCreatedEvent = getAbiItem({ abi: ariaClearingAbi, name: "CampaignC
 const eventLoggedEvent = getAbiItem({ abi: ariaClearingAbi, name: "EventLogged" });
 const eventDisputedEvent = getAbiItem({ abi: ariaClearingAbi, name: "EventDisputed" });
 const eventSettledEvent = getAbiItem({ abi: ariaClearingAbi, name: "EventSettled" });
+const paidOutEvent = getAbiItem({ abi: ariaClearingAbi, name: "PaidOut" });
+const payoutDeferredEvent = getAbiItem({ abi: ariaClearingAbi, name: "PayoutDeferred" });
 
 /**
  * Reads a receipt from the chain with plain RPC: state from the contract views, block
@@ -621,6 +680,35 @@ export async function verifyReceipt(requestId: string, options: VerifyOptions): 
     ),
   ]);
 
+  // 5. Payout logs from the blocks that released an event (same transaction as the settlement), and the fee rate.
+  const releasedBlocks = [
+    ...new Set(settledLogs.filter((log) => Number(log.args.outcome) === STATUS_RELEASED).map((log) => log.blockNumber)),
+  ];
+  const anyReleased = knownIds.some((id) => views[id].status === STATUS_RELEASED);
+  const [payoutLogs, feeBps] = await Promise.all([
+    mapLimit(releasedBlocks, concurrency, (block) =>
+      Promise.all([
+        client.getLogs({ address, event: paidOutEvent, args: { eventId: knownIds }, fromBlock: block, toBlock: block }),
+        client.getLogs({ address, event: payoutDeferredEvent, args: { eventId: knownIds }, fromBlock: block, toBlock: block }),
+      ]),
+    ),
+    anyReleased
+      ? client.readContract({ address, abi: ariaClearingAbi, functionName: "feeBps" }).catch(() => undefined)
+      : Promise.resolve(undefined),
+  ]);
+  const payouts: PayoutData[] = payoutLogs.flatMap(([paid, deferred]) => [
+    ...paid.map((log) => ({ log, deferred: false })),
+    ...deferred.map((log) => ({ log, deferred: true })),
+  ]).map(({ log, deferred }) => ({
+    eventId: log.args.eventId!,
+    publisher: log.args.publisher!,
+    amount: log.args.amount!,
+    fee: log.args.fee!,
+    deferred,
+    blockNumber: log.blockNumber,
+    txHash: log.transactionHash,
+  }));
+
   const created = campaignLogs[0];
   const chainId = options.expected?.chainId === undefined ? undefined : await client.getChainId();
   return buildReceipt(requestId, {
@@ -648,5 +736,7 @@ export async function verifyReceipt(requestId: string, options: VerifyOptions): 
       blockNumber: log.blockNumber,
       txHash: log.transactionHash,
     })),
+    payouts,
+    feeBps,
   }, options.expected);
 }
