@@ -21,7 +21,7 @@ forge test --gas-report --match-test testGas_
 ## Deploy to Monad testnet (chain 10143)
 
 The deployer needs MON for gas and enough USDC for every campaign in `script/campaigns.json`
-(4 × 4 USDC = 16 USDC). The deployer becomes the contract owner, the fee recipient (`feeBps` 2000, 20 %)
+(4 × 4 USDC + 10 × 1.5 USDC = 31 USDC). The deployer becomes the contract owner, the fee recipient (`feeBps` 2000, 20 %)
 and the advertiser of the seeded campaigns.
 
 ```bash
