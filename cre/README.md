@@ -95,11 +95,12 @@ The workflow isn't deployed to a DON. `.github/workflows/settle.yml` runs the si
 the live app are settled without anyone running the command. A run with nothing past the dispute window sends no
 transaction; a run that settles sends one report for up to 15 events.
 
-It installs a pinned CRE CLI release (checked against its SHA-256) and needs two repository secrets:
+It installs a pinned CRE CLI release (checked against its SHA-256) and needs these repository secrets:
 
 | Secret | Value |
 |---|---|
-| `CRE_API_KEY` | a CRE API key from app.chain.link (Account Settings); replaces `cre login` |
+| `CRE_API_KEY` | a CRE API key (Organization → APIs on the CRE platform; needs deploy access). Used when set |
+| `CRE_CREDENTIALS` | otherwise: `base64 < ~/.cre/cre.yaml` after `cre login`; the refresh token renews the access token on each run |
 | `CRE_ETH_PRIVATE_KEY` | the funded Monad testnet key that broadcasts the report (pays gas, ~0.15 MON per settling run) |
 
 ## A real run on Monad testnet

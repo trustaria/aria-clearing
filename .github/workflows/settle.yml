@@ -42,10 +42,28 @@ jobs:
       - name: Install the workflow's dependencies
         working-directory: cre/aria-settle
         run: bun install --frozen-lockfile
+      # CRE_API_KEY when the account has one; otherwise the CLI login saved as CRE_CREDENTIALS (base64 of
+      # ~/.cre/cre.yaml), whose refresh token renews the short-lived access token on each run.
+      - name: Sign in to CRE
+        env:
+          CRE_API_KEY: ${{ secrets.CRE_API_KEY }}
+          CRE_CREDENTIALS: ${{ secrets.CRE_CREDENTIALS }}
+        run: |
+          set -euo pipefail
+          if [ -n "$CRE_API_KEY" ]; then
+            echo "CRE_API_KEY=$CRE_API_KEY" >> "$GITHUB_ENV"
+          elif [ -n "$CRE_CREDENTIALS" ]; then
+            umask 077
+            mkdir -p "$HOME/.cre"
+            printf '%s' "$CRE_CREDENTIALS" | base64 -d > "$HOME/.cre/cre.yaml"
+          else
+            echo "::error::Set the CRE_API_KEY or CRE_CREDENTIALS repository secret"
+            exit 1
+          fi
+          cre whoami > /dev/null
       - name: Settle
         working-directory: cre
         env:
-          CRE_API_KEY: ${{ secrets.CRE_API_KEY }}
           CRE_ETH_PRIVATE_KEY: ${{ secrets.CRE_ETH_PRIVATE_KEY }}
         run: |
           set -euo pipefail
