@@ -130,3 +130,48 @@ export const LIVE_INDEX_RESPONSE = {
     chain_metadata: [{ start_block: 70478614, latest_processed_block: 70496822 }],
   },
 } as const;
+
+export const LIVE_CAMPAIGN_ID = LISBON_ID;
+
+/** CampaignIndex response for the Lisbon campaign: live rows from the hosted indexer, with sentences filled in. */
+export const LIVE_CAMPAIGN_RESPONSE = {
+  data: {
+    Campaign_by_pk: { id: LISBON_ID },
+    ClearingEvent: [
+      {
+        id: "0x1b8f080cbaad7f8c21d390921d60fe944b0f55261e840385de51d3ad83bac40b",
+        requestId: "req_36wX7fR79VnTOVHwllgYhA",
+        kind: "click",
+        price: "250000",
+        status: "released",
+        wasDisputed: false,
+        loggedAt: 1791909343,
+        loggedTx: "0x1f286c74c029265e13d5c9608f5a53c2fa693db32871d69938dea6b58084a486",
+        rationale: "Tagus Family Travel plans Lisbon trips with kid-friendly day plans.",
+      },
+      {
+        id: "0x6190f53d5c344b86281e7103d61078c3e4f8fc871caebdf3af6c9685e6564b02",
+        requestId: "req_36wX7fR79VnTOVHwllgYhA",
+        kind: "impression",
+        price: "10000",
+        status: "released",
+        wasDisputed: false,
+        loggedAt: 1791909339,
+        loggedTx: "0x8c97b2e9f8d1469257e3f67884f4aedc544866c5e2db2c405a974efb705775d7",
+        rationale: "Tagus Family Travel plans Lisbon trips with kid-friendly day plans.",
+      },
+      {
+        id: "0xc7231c4d3a06eced5395186e5e9f39b8342a0df659851d62483d973389c78d56",
+        requestId: "req_ECxfg5BC2dgs1C9xg04VKX",
+        kind: "impression",
+        price: "10000",
+        status: "rejected",
+        wasDisputed: false,
+        loggedAt: 1791835792,
+        loggedTx: "0x5373b1d5d7580ba9d9b125a939548511502c02ff37de6c9c660a1539edf00754",
+        rationale: "Tagus Family Travel books stroller-friendly tram tours.",
+      },
+    ],
+    chain_metadata: [{ start_block: 70726907, latest_processed_block: 70772183 }],
+  },
+} as const;
