@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
+import DemoBar from "../components/DemoBar";
 import { ARIA_ICONS } from "../lib/brand-icons";
+import { DEMO_BAR_SCRIPT } from "../lib/demo-bar";
 import "./globals.css";
 
 const geistSans = localFont({
@@ -36,10 +38,15 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    // The head script may set data-demo-bar on <html> before hydration.
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: DEMO_BAR_SCRIPT }} />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
+        <DemoBar />
         {children}
       </body>
     </html>

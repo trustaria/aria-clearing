@@ -3,6 +3,7 @@ import Link from "next/link";
 import { REPO_URL } from "../../lib/demo-nav";
 import { proofLinks } from "../../lib/landing";
 import { AriaLogo } from "../AriaBrand";
+import { ShowDemoBar } from "../DemoBar";
 import ExternalLink from "../ExternalLink";
 
 const FOCUS =
@@ -179,6 +180,7 @@ export default function Landing({
               <ExternalLink href={`${REPO_URL}#readme`} className={TEXT_LINK}>
                 Details in the README
               </ExternalLink>
+              <ShowDemoBar className={`ml-4 text-stone-500 underline underline-offset-4 hover:text-stone-900 ${FOCUS}`} />
             </p>
           </section>
         </div>
