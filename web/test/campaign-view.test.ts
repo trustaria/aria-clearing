@@ -63,7 +63,9 @@ const json: CampaignStatsJson = {
     network: "Monad testnet",
   },
   now: NOW,
-  scanned: { fromBlock: "1", toBlock: "2" },
+  source: "envio",
+  fromBlock: "1",
+  toBlock: "2",
 };
 
 describe("toCampaignView", () => {
