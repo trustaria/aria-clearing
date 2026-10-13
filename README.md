@@ -10,6 +10,8 @@ alone, and it pays the app only after a Chainlink CRE workflow has checked the e
 Track: **Trust, Identity & AI Infrastructure** (Metropolis hackathon).
 
 - Contract (Monad testnet, source verified): [`0x431e97E2EB23ac06C9f807cC8DCe54499C1bDC7B`](https://testnet.monadvision.com/address/0x431e97E2EB23ac06C9f807cC8DCe54499C1bDC7B)
+- Live app: https://web-production-95cf9.up.railway.app (Nova at `/`, publisher dashboard at `/dashboard`, advertiser console at `/advertise`)
+- Indexer (Envio Cloud, GraphQL): https://indexer.dev.hyperindex.xyz/4e14013/v1/graphql
 - Demo video: _link added at submission_
 
 ## The receipt
