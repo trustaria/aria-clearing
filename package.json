@@ -8,5 +8,10 @@
     "env:check": "node scripts/env-check.mjs",
     "demo:reset": "node scripts/demo.mjs reset",
     "demo:warm": "node scripts/demo.mjs warm"
+  },
+  "pnpm": {
+    "overrides": {
+      "@trustaria/core": "file:vendor/trustaria-core-0.3.0-pre.tgz"
+    }
   }
 }
