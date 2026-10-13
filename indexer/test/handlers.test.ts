@@ -47,7 +47,7 @@ const logged = (n: number, publisher: Hex, kind = 0n, price = 10_000n) =>
       requestId: `req_${n}`,
       publisher,
       kind,
-      rationale: "Because",
+      rationale: `Sentence ${n}.`,
       rationaleHash: id(600 + n),
       claimRefs: [1n],
       price,
@@ -115,6 +115,7 @@ describe("AriaClearing handlers", () => {
       status: "logged",
       paid: false,
       loggedTx: tx(2),
+      rationale: "Sentence 2.",
     });
 
     await indexer.process({

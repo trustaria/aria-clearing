@@ -48,6 +48,7 @@ indexer.onEvent({ contract: "AriaClearing", event: "EventLogged" }, async ({ eve
     campaign_id: p.campaignId,
     publisher_id: p.publisher,
     kind: isClick ? "click" : "impression",
+    rationale: p.rationale,
     price: p.price,
     status: "logged",
     wasDisputed: false,
