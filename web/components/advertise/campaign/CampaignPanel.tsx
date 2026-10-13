@@ -376,7 +376,7 @@ export default function CampaignPanel({
       {isNew && view?.endable && actions.end.phase === "idle" && (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 px-5 py-4 text-[15px] leading-relaxed text-emerald-950">
           <p>Your campaign is live. AI answers can recommend it from now.</p>
-          <a href="/" className="mt-1 inline-block font-medium underline decoration-emerald-300 underline-offset-4 hover:decoration-emerald-600">
+          <a href="/ai-chat" className="mt-1 inline-block font-medium underline decoration-emerald-300 underline-offset-4 hover:decoration-emerald-600">
             Try it in Nova →
           </a>
         </div>
