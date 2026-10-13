@@ -21,7 +21,17 @@ export type CampaignSummary = {
   impressions: number;
   clicks: number;
 };
-export type CampaignsResponse = { campaigns: CampaignSummary[]; maxBudget: number };
+/** wallet: the advertiser's embedded wallet funds launches. treasury: Aria's treasury does. */
+export type FundingMode = "wallet" | "treasury";
+/** The signed-in advertiser's embedded wallet (looked up by the server) and the contracts it pays. */
+export type WalletInfo = { address: string | null; clearing: string; usdc: string };
+export type CampaignsResponse = {
+  campaigns: CampaignSummary[];
+  maxBudget: number;
+  funding?: FundingMode;
+  /** Present in wallet mode. */
+  wallet?: WalletInfo;
+};
 
 export type LaunchInput = DraftInput & {
   claims: string[];
@@ -35,6 +45,20 @@ export type LaunchInput = DraftInput & {
 };
 export type LaunchResult = { slug: string; txHash: string } | { error: string };
 export type DisputeResult = { txHash: string } | { error: string };
+/** A pending wallet-funded campaign. `budget` is USDC units as a decimal string; `createCampaignData` is built by the server. */
+export type Prepared = {
+  slug: string;
+  campaignId: string;
+  clearing: string;
+  usdc: string;
+  budget: string;
+  createCampaignData: `0x${string}`;
+  wallet: string;
+};
+export type PrepareResult = Prepared | { error: string };
+export type ConfirmResult = { slug: string; txHash: string } | { error: string };
+/** `usdc` in USDC units and `mon` in wei, as decimal strings; zero when the wallet already held enough. */
+export type TestFundsResult = { usdc: string; mon: string; usdcTx: string | null; monTx: string | null } | { error: string };
 /** `refunded` is in cents. */
 export type EndResult = { refunded: number; txHash: string } | { error: string };
 
@@ -46,10 +70,17 @@ export type AdvertiseClient = {
   launch(input: LaunchInput): Promise<LaunchResult>;
   dispute(slug: string, eventId: string): Promise<DisputeResult>;
   endCampaign(slug: string): Promise<EndResult>;
+  /** Saves a pending wallet-funded campaign and returns the escrow call for the advertiser's wallet. */
+  prepare(input: LaunchInput): Promise<PrepareResult>;
+  /** Asks the server to check the createCampaign transaction and make the campaign live. */
+  confirm(slug: string, txHash: string): Promise<ConfirmResult>;
+  /** Asks Aria to send test USDC and MON to the advertiser's wallet. */
+  addTestFunds(budgetCents: number): Promise<TestFundsResult>;
 };
 
 export const DISPUTE_FAILED = "We couldn't dispute this one right now. Try again in a few seconds.";
 export const END_FAILED = "We couldn't end your campaign right now. Nothing changed. Try again in a minute.";
+export const TEST_FUNDS_FAILED = "We couldn't add test funds right now. Try again in a minute.";
 
 export type GetToken = () => Promise<string | null>;
 
@@ -130,6 +161,36 @@ export function createHttpClient(getToken: GetToken, fetchImpl: typeof fetch = f
         return { error: END_FAILED };
       }
     },
+    async prepare(input) {
+      try {
+        const { ok, body } = await call<PrepareResult>("/api/advertise/campaigns/prepare", { method: "POST", body: input });
+        if (ok && "createCampaignData" in body) return body;
+        return { error: ("error" in body && body.error) || "" };
+      } catch {
+        return { error: "" };
+      }
+    },
+    async confirm(slug, txHash) {
+      try {
+        const { ok, body } = await call<ConfirmResult>("/api/advertise/campaigns/confirm", {
+          method: "POST",
+          body: { slug, txHash },
+        });
+        if (ok && "txHash" in body) return body;
+        return { error: ("error" in body && body.error) || "" };
+      } catch {
+        return { error: "" };
+      }
+    },
+    async addTestFunds(budgetCents) {
+      try {
+        const { ok, body } = await call<TestFundsResult>("/api/advertise/test-funds", { method: "POST", body: { budgetCents } });
+        if (ok && "usdc" in body) return body;
+        return { error: ("error" in body && body.error) || TEST_FUNDS_FAILED };
+      } catch {
+        return { error: TEST_FUNDS_FAILED };
+      }
+    },
   };
 }
 
@@ -206,6 +267,18 @@ export function createMockClient({ delayMs = 800, campaigns = [], maxBudget = 18
       const campaign = list.find((c) => c.slug === slug);
       if (campaign) campaign.status = "ended";
       return { refunded: campaign ? campaign.budget - campaign.spent : 0, txHash: `mock-end-${slug}` };
+    },
+    async prepare() {
+      await wait(delayMs);
+      return { error: "Wallet funding is not available in the mock." };
+    },
+    async confirm() {
+      await wait(delayMs);
+      return { error: "Wallet funding is not available in the mock." };
+    },
+    async addTestFunds() {
+      await wait(delayMs);
+      return { usdc: "0", mon: "0", usdcTx: null, monTx: null };
     },
   };
 }

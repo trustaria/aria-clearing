@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import SignIn from "../../../components/advertise/SignIn";
 import { ConsoleHeader } from "../../../components/advertise/ui";
 import { useAdvertiseClient } from "../../../components/advertise/useAdvertiseClient";
+import WalletLaunch from "../../../components/advertise/WalletLaunch";
 import Wizard from "../../../components/advertise/Wizard";
 
 export default function NewCampaignPage() {
@@ -30,6 +31,7 @@ export default function NewCampaignPage() {
               client={client}
               email={user?.email?.address}
               onLaunched={(slug) => router.push(`/advertise/c/${slug}?new=1`)}
+              walletLaunch={(args) => <WalletLaunch client={client} args={args} />}
             />
           </div>
         )}

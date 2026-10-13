@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AdvertiseClient } from "../../lib/advertise-client";
+import type { AdvertiseClient, FundingMode, LaunchInput, WalletInfo } from "../../lib/advertise-client";
 import CardPreview from "./CardPreview";
 import {
   BUDGET_PRESETS,
@@ -675,6 +675,7 @@ export function LaunchPanel({
   submitting,
   progress,
   error,
+  funding = "treasury",
   onBack,
   onLaunch,
 }: {
@@ -682,6 +683,8 @@ export function LaunchPanel({
   submitting: boolean;
   progress: Progress | null;
   error: string | null;
+  /** wallet: the advertiser's own wallet funds the launch, so the treasury notice is replaced. */
+  funding?: FundingMode;
   onBack: () => void;
   onLaunch: () => void;
 }) {
@@ -690,13 +693,22 @@ export function LaunchPanel({
       <p className={HELP}>
         Once launched, claims and prices can&apos;t be edited. To change them, end the campaign and create a new one.
       </p>
-      <div className="rounded-xl border border-stone-300 bg-stone-50 px-5 py-4">
-        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-stone-500">Test funding</p>
-        <p className="mt-2 text-[15px] leading-relaxed text-stone-800">
-          This is a test network. No card is charged. Aria funds your {dollars(budgetCents)} budget with test dollars and
-          holds it for this campaign.
-        </p>
-      </div>
+      {funding === "wallet" ? (
+        <div className="rounded-xl border border-stone-300 bg-stone-50 px-5 py-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-stone-500">Funding</p>
+          <p className="mt-2 text-[15px] leading-relaxed text-stone-800">
+            Your {dollars(budgetCents)} budget moves from your campaign wallet into escrow when you launch.
+          </p>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-stone-300 bg-stone-50 px-5 py-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-stone-500">Test funding</p>
+          <p className="mt-2 text-[15px] leading-relaxed text-stone-800">
+            This is a test network. No card is charged. Aria funds your {dollars(budgetCents)} budget with test dollars and
+            holds it for this campaign.
+          </p>
+        </div>
+      )}
       {error && (
         <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-800">
           {error}
@@ -787,13 +799,28 @@ function ReviewStep({
   );
 }
 
-/** Four-step campaign wizard. State lives here until launch; the client talks to /api/advertise/*. */
+/** What the wallet-funded launch step needs from the wizard. */
+export type WalletLaunchArgs = {
+  budgetCents: number;
+  input: LaunchInput;
+  wallet: WalletInfo;
+  onBack: () => void;
+  onLaunched: (slug: string) => void;
+  /** True while a launch runs, so the wizard locks its steps. */
+  onBusy: (busy: boolean) => void;
+};
+
+/**
+ * Four-step campaign wizard. State lives here until launch; the client talks to /api/advertise/*.
+ * When the server reports wallet funding, Fund and launch opens `walletLaunch` in place of the treasury launch.
+ */
 export default function Wizard({
   client,
   initialStep = 1,
   initialState,
   email,
   onLaunched,
+  walletLaunch,
 }: {
   client: AdvertiseClient;
   initialStep?: Step;
@@ -801,10 +828,14 @@ export default function Wizard({
   /** The signed-in user's email, saved with the campaign for display. */
   email?: string;
   onLaunched: (slug: string) => void;
+  walletLaunch?: (args: WalletLaunchArgs) => React.ReactNode;
 }) {
   const [step, setStep] = useState<Step>(initialStep);
   const [state, setState] = useState<WizardState>({ ...INITIAL_STATE, ...initialState });
   const [maxBudget, setMaxBudget] = useState<number | null>(null);
+  const [funding, setFunding] = useState<FundingMode>("treasury");
+  const [wallet, setWallet] = useState<WalletInfo | null>(null);
+  const [fundingOpen, setFundingOpen] = useState(false);
   const [drafting, setDrafting] = useState(false);
   const [draftFailed, setDraftFailed] = useState(false);
   const [reading, setReading] = useState(false);
@@ -822,7 +853,12 @@ export default function Wizard({
     let live = true;
     client
       .listCampaigns()
-      .then((r) => live && setMaxBudget(r.maxBudget))
+      .then((r) => {
+        if (!live) return;
+        setMaxBudget(r.maxBudget);
+        setFunding(r.funding ?? "treasury");
+        setWallet(r.wallet ?? null);
+      })
       .catch(() => undefined);
     return () => {
       live = false;
@@ -892,6 +928,19 @@ export default function Wizard({
     if (draftedFor.current !== productKey(state.product)) void draft();
   };
 
+  const launchInput = (): LaunchInput => ({
+    brand: state.product.brand.trim(),
+    url: state.product.url.trim(),
+    description: state.product.description.trim(),
+    claims: approvedClaims(state.claims),
+    category: state.category,
+    keywords: state.keywords,
+    budgetCents: budgetCents(state) ?? 0,
+    cpcCents: parseDollars(state.cpc) ?? 0,
+    cpmCents: parseDollars(state.cpm) ?? 0,
+    email: email ?? "",
+  });
+
   const launch = async () => {
     if (launching.current) return;
     launching.current = true;
@@ -902,20 +951,7 @@ export default function Wizard({
       setTimeout(() => setProgress((p) => p && { ...p, saved: true }), PROGRESS_MS[0]),
       setTimeout(() => setProgress((p) => p && { ...p, held: true }), PROGRESS_MS[1]),
     ];
-    const result = await client
-      .launch({
-        brand: state.product.brand.trim(),
-        url: state.product.url.trim(),
-        description: state.product.description.trim(),
-        claims: approvedClaims(state.claims),
-        category: state.category,
-        keywords: state.keywords,
-        budgetCents: budgetCents(state) ?? 0,
-        cpcCents: parseDollars(state.cpc) ?? 0,
-        cpmCents: parseDollars(state.cpm) ?? 0,
-        email: email ?? "",
-      })
-      .catch(() => ({ error: "" }));
+    const result = await client.launch(launchInput()).catch(() => ({ error: "" }));
     timers.forEach(clearTimeout);
     if ("slug" in result) {
       setProgress({ saved: true, held: true, live: true });
@@ -929,6 +965,8 @@ export default function Wizard({
   };
 
   const budget = budgetCents(state) ?? 0;
+  const walletStep = funding === "wallet" && walletLaunch && wallet ? { render: walletLaunch, wallet } : null;
+  const walletMode = walletStep !== null;
 
   return (
     <div ref={top} className="grid scroll-mt-6 gap-8 md:grid-cols-[12rem_minmax(0,1fr)] md:gap-10">
@@ -969,14 +1007,26 @@ export default function Wizard({
             locked={submitting}
             onGo={go}
             launch={
-              <LaunchPanel
-                budgetCents={budget}
-                submitting={submitting}
-                progress={progress}
-                error={launchError}
-                onBack={() => go(3)}
-                onLaunch={() => void launch()}
-              />
+              fundingOpen && walletStep ? (
+                walletStep.render({
+                  budgetCents: budget,
+                  input: launchInput(),
+                  wallet: walletStep.wallet,
+                  onBack: () => setFundingOpen(false),
+                  onLaunched,
+                  onBusy: setSubmitting,
+                })
+              ) : (
+                <LaunchPanel
+                  budgetCents={budget}
+                  submitting={submitting}
+                  progress={progress}
+                  error={launchError}
+                  funding={walletMode ? "wallet" : "treasury"}
+                  onBack={() => go(3)}
+                  onLaunch={walletMode ? () => setFundingOpen(true) : () => void launch()}
+                />
+              )
             }
           />
         )}

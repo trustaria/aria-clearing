@@ -21,8 +21,20 @@ import {
   siteFailedCopy,
   validateProduct,
 } from "../components/advertise/rules";
+import FundingPanel, { type FundingPanelProps } from "../components/advertise/FundingPanel";
+import {
+  APPROVE_FAILED,
+  CONFIRM_PENDING,
+  ESCROW_FAILED,
+  IDLE_LAUNCH,
+  fundingChecks,
+  reduceLaunch,
+  runWalletLaunch,
+  type LaunchEvent,
+  type LaunchOps,
+} from "../components/advertise/funding";
 import Wizard, { LaunchPanel } from "../components/advertise/Wizard";
-import { createHttpClient, createMockClient } from "../lib/advertise-client";
+import { createHttpClient, createMockClient, type Prepared } from "../lib/advertise-client";
 
 const product = {
   brand: "Crema Works",
@@ -344,5 +356,198 @@ describe("Step 1: read my website", () => {
     const page = html({ ...prefill, product: { ...prefill.product, url: "https://other.example/" }, fromSite: prefill.product.url });
     expect(page).not.toContain(SITE_DRAFTED);
     expect(page).toContain('value="Haus of Veil"');
+  });
+});
+
+describe("wallet funding", () => {
+  const WALLET = "0x9F1C2A8b7E6d5C4b3A2918070605040302010aBC";
+  const MON_NEEDED = 60_000_000_000_000_000n;
+  const PREPARED: Prepared = {
+    slug: "crema-works-k3x9",
+    campaignId: `0x${"01".repeat(32)}`,
+    clearing: "0x431e97E2EB23ac06C9f807cC8DCe54499C1bDC7B",
+    usdc: "0x534b2f3A21130d7a60830c2Df862319e593943A3",
+    budget: "5000000",
+    createCampaignData: "0xabcdef",
+    wallet: WALLET,
+  };
+  const ESCROW_TX = `0x${"ef".repeat(32)}`;
+
+  const props = (overrides: Partial<FundingPanelProps> = {}): FundingPanelProps => ({
+    budgetCents: 500,
+    address: WALLET,
+    balances: { usdc: 5_000_000n, mon: MON_NEEDED },
+    monNeeded: MON_NEEDED,
+    checking: false,
+    testFunds: { phase: "idle" },
+    launch: IDLE_LAUNCH,
+    onAddTestFunds: () => {},
+    onCheckAgain: () => {},
+    onBack: () => {},
+    onLaunch: () => {},
+    ...overrides,
+  });
+  const render = (overrides: Partial<FundingPanelProps> = {}) => renderToStaticMarkup(<FundingPanel {...props(overrides)} />);
+  const launchDisabled = (html: string) => /<button[^>]*disabled=""[^>]*>Launch<\/button>/.test(html);
+
+  function ops(overrides: Partial<LaunchOps> = {}): LaunchOps {
+    return {
+      prepare: vi.fn(async () => PREPARED),
+      allowance: vi.fn(async () => 0n),
+      approve: vi.fn(async () => `0x${"aa".repeat(32)}`),
+      createCampaign: vi.fn(async () => ESCROW_TX),
+      confirm: vi.fn(async (slug: string, txHash: string) => ({ slug, txHash })),
+      ...overrides,
+    };
+  }
+
+  function recorder() {
+    const events: LaunchEvent[] = [];
+    return { events, dispatch: (e: LaunchEvent) => events.push(e), state: () => events.reduce(reduceLaunch, IDLE_LAUNCH) };
+  }
+
+  it("shows the wallet address, balances, test-mode and onramp copy", () => {
+    const html = render();
+    expect(html).toContain("Fund your campaign wallet");
+    expect(html).toContain(WALLET);
+    expect(html).toContain("This is a test network: Aria adds test funds for you.");
+    expect(html).toContain("In production, an onramp provider funds this wallet from a card payment, so you won&#x27;t see this step.");
+    expect(html).toContain("Add test funds");
+    expect(html).toContain("Check again");
+    expect(html).toContain("$5.00");
+  });
+
+  it("keeps Launch disabled until both balances suffice", () => {
+    expect(launchDisabled(render())).toBe(false);
+    expect(launchDisabled(render({ balances: { usdc: 4_999_999n, mon: MON_NEEDED } }))).toBe(true);
+    expect(launchDisabled(render({ balances: { usdc: 5_000_000n, mon: MON_NEEDED - 1n } }))).toBe(true);
+    expect(launchDisabled(render({ balances: null }))).toBe(true);
+    expect(launchDisabled(render({ monNeeded: null }))).toBe(true);
+    expect(render({ balances: { usdc: 0n, mon: 0n } }).match(/Top up/g)).toHaveLength(2);
+  });
+
+  it("checks the balances against the budget and the fee", () => {
+    expect(fundingChecks({ usdc: 5_000_000n, mon: 10n }, 5_000_000n, 10n)).toEqual({ usdcOk: true, monOk: true, ready: true });
+    expect(fundingChecks({ usdc: 5_000_000n, mon: 9n }, 5_000_000n, 10n)).toEqual({ usdcOk: true, monOk: false, ready: false });
+    expect(fundingChecks(null, 5_000_000n, 10n)).toEqual({ usdcOk: false, monOk: false, ready: false });
+  });
+
+  it("approves, moves the budget into escrow and confirms", async () => {
+    const o = ops();
+    const r = recorder();
+    expect(await runWalletLaunch(o, r.dispatch, 500)).toBe("crema-works-k3x9");
+    expect(r.events.map((e) => e.type)).toEqual(["start", "approving", "escrow", "confirming", "live"]);
+    expect(o.approve).toHaveBeenCalledWith(PREPARED);
+    expect(o.confirm).toHaveBeenCalledWith("crema-works-k3x9", ESCROW_TX);
+    const html = render({ launch: r.state() });
+    expect(html).toContain("Approved $5.00 USDC");
+    expect(html).toContain("Available to AI answers");
+    expect(html).toContain(`https://testnet.monadvision.com/tx/${ESCROW_TX}`);
+  });
+
+  it("skips the approve when the allowance already covers the budget", async () => {
+    const o = ops({ allowance: vi.fn(async () => 5_000_000n) });
+    const r = recorder();
+    await runWalletLaunch(o, r.dispatch, 500);
+    expect(o.approve).not.toHaveBeenCalled();
+    expect(r.events.map((e) => e.type)).toEqual(["start", "escrow", "confirming", "live"]);
+    expect(render({ launch: r.state() })).not.toContain("USDC…");
+  });
+
+  it("shows progress copy while each step runs", () => {
+    expect(render({ launch: reduceLaunch(reduceLaunch(IDLE_LAUNCH, { type: "start" }), { type: "approving" }) })).toContain(
+      "Approving $5.00 USDC…",
+    );
+    expect(render({ launch: reduceLaunch(IDLE_LAUNCH, { type: "escrow" }) })).toContain("Moving $5.00 into escrow…");
+  });
+
+  it.each([
+    ["prepare", { prepare: vi.fn(async () => ({ error: "Test campaigns can spend up to $5.00 each. Lower your budget to launch." })) }, "Test campaigns can spend up to $5.00 each. Lower your budget to launch."],
+    ["approve", { approve: vi.fn(async () => { throw new Error("User rejected"); }) }, APPROVE_FAILED("$5.00")],
+    ["escrow", { createCampaign: vi.fn(async () => { throw new Error("reverted"); }) }, ESCROW_FAILED("$5.00")],
+    ["confirm", { confirm: vi.fn(async () => ({ error: "" })) }, CONFIRM_PENDING],
+  ] as const)("shows the copy and re-enables Launch when %s fails", async (_step, overrides, copy) => {
+    const r = recorder();
+    expect(await runWalletLaunch(ops(overrides as Partial<LaunchOps>), r.dispatch, 500)).toBeNull();
+    const state = r.state();
+    expect(state.phase).toBe("error");
+    expect(state.error).toBe(copy);
+    const html = render({ launch: state });
+    expect(html).toContain(copy.replace(/'/g, "&#x27;"));
+    expect(launchDisabled(html)).toBe(false);
+  });
+
+  it("disables Launch and Back while a launch runs", () => {
+    const html = render({ launch: reduceLaunch(IDLE_LAUNCH, { type: "escrow" }) });
+    expect(launchDisabled(html)).toBe(true);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Back<\/button>/);
+  });
+
+  it("retries only the confirmation after the escrow transaction went through", async () => {
+    const r = recorder();
+    await runWalletLaunch(ops({ confirm: vi.fn(async () => ({ error: "" })) }), r.dispatch, 500);
+    const failed = r.state();
+    expect(failed.unconfirmed).toEqual({ slug: "crema-works-k3x9", txHash: ESCROW_TX });
+
+    const retry = ops();
+    const again = recorder();
+    expect(await runWalletLaunch(retry, again.dispatch, 500, failed.unconfirmed)).toBe("crema-works-k3x9");
+    expect(retry.prepare).not.toHaveBeenCalled();
+    expect(retry.createCampaign).not.toHaveBeenCalled();
+    expect(retry.confirm).toHaveBeenCalledWith("crema-works-k3x9", ESCROW_TX);
+  });
+
+  it("shows the test funds state", () => {
+    expect(render({ testFunds: { phase: "sending" } })).toMatch(/<button[^>]*disabled=""[^>]*>Adding test funds…/);
+    expect(render({ testFunds: { phase: "error", message: "This account has used its test funds." } })).toContain(
+      "This account has used its test funds.",
+    );
+  });
+
+  it("keeps the treasury launch box unless the funding is the advertiser's wallet", () => {
+    const panel = (funding?: "wallet" | "treasury") =>
+      renderToStaticMarkup(
+        <LaunchPanel budgetCents={500} submitting={false} progress={null} error={null} funding={funding} onBack={() => {}} onLaunch={() => {}} />,
+      );
+    expect(panel()).toContain("Aria funds your $5.00 budget with test dollars");
+    expect(panel("treasury")).toContain("Aria funds your $5.00 budget with test dollars");
+    expect(panel("wallet")).not.toContain("Aria funds your $5.00 budget with test dollars");
+    expect(panel("wallet")).toContain("Fund and launch");
+  });
+});
+
+describe("wallet client calls", () => {
+  it("prepares, confirms and asks for test funds with the bearer token", async () => {
+    const replies = [
+      { slug: "crema-works-k3x9", campaignId: "0x01", clearing: "0x02", usdc: "0x03", budget: "5000000", createCampaignData: "0xab", wallet: "0x04" },
+      { slug: "crema-works-k3x9", txHash: "0xef" },
+      { usdc: "5000000", mon: "1", usdcTx: "0xaa", monTx: "0xbb" },
+    ];
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify(replies.shift()), { status: 200 }));
+    const client = createHttpClient(async () => "tok", fetchImpl as unknown as typeof fetch);
+    const prepared = await client.prepare({ ...product, claims, category: "food and drink", keywords: [], budgetCents: 500, cpcCents: 25, cpmCents: 1000 });
+    expect(prepared).toMatchObject({ slug: "crema-works-k3x9", budget: "5000000" });
+    expect(await client.confirm("crema-works-k3x9", "0xef")).toEqual({ slug: "crema-works-k3x9", txHash: "0xef" });
+    expect(await client.addTestFunds(500)).toMatchObject({ usdc: "5000000" });
+    const calls = fetchImpl.mock.calls as unknown as [string, RequestInit][];
+    expect(calls.map(([path]) => path)).toEqual([
+      "/api/advertise/campaigns/prepare",
+      "/api/advertise/campaigns/confirm",
+      "/api/advertise/test-funds",
+    ]);
+    expect(JSON.parse(calls[1][1].body as string)).toEqual({ slug: "crema-works-k3x9", txHash: "0xef" });
+    expect(JSON.parse(calls[2][1].body as string)).toEqual({ budgetCents: 500 });
+    expect((calls[2][1].headers as Record<string, string>).authorization).toBe("Bearer tok");
+  });
+
+  it("returns the server's copy when a wallet call fails", async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ error: "Nope." }), { status: 409 }));
+    const client = createHttpClient(async () => "tok", fetchImpl as unknown as typeof fetch);
+    expect(await client.confirm("s", "0x1")).toEqual({ error: "Nope." });
+    expect(await client.addTestFunds(500)).toEqual({ error: "Nope." });
+    const offline = createHttpClient(async () => "tok", (async () => {
+      throw new Error("offline");
+    }) as unknown as typeof fetch);
+    expect(await offline.prepare({ ...product, claims, category: "food and drink", keywords: [], budgetCents: 500, cpcCents: 25, cpmCents: 1000 })).toEqual({ error: "" });
   });
 });
