@@ -10,7 +10,8 @@ const FOCUS =
   "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900";
 const BUTTON = `inline-flex items-center justify-center rounded-lg bg-stone-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-stone-700 ${FOCUS}`;
 const TEXT_LINK = `rounded font-medium text-stone-900 underline decoration-stone-300 underline-offset-4 transition hover:decoration-stone-700 ${FOCUS}`;
-const HEADING = "text-xs font-semibold uppercase tracking-[0.18em] text-stone-500";
+const HEADING =
+  "text-xs font-semibold uppercase tracking-[0.18em] text-stone-500";
 
 const ROLES = [
   {
@@ -41,8 +42,14 @@ const ROLES = [
 
 const SPONSORS = [
   { name: "Monad", role: "escrow, receipts and settlement" },
-  { name: "Chainlink CRE", role: "verifies the evidence and settles each event" },
-  { name: "Privy", role: "email sign-in, embedded wallets, server wallets with policies" },
+  {
+    name: "Chainlink CRE",
+    role: "verifies the evidence and settles each event",
+  },
+  {
+    name: "Privy",
+    role: "email sign-in, embedded wallets, server wallets with policies",
+  },
   { name: "Envio", role: "indexes the dashboard and campaign pages" },
   { name: "KIMI", role: "the AI chat's answers and advertiser claim drafts" },
   { name: "Gemini", role: "Aria's ad selection" },
@@ -50,7 +57,9 @@ const SPONSORS = [
 
 function RoleIcon({ icon }: { icon: "nova" | "aria" }) {
   if (icon === "aria") return <AriaLogo className="h-7 w-7" />;
-  return <Image src="/icons/nova.svg" alt="" width={28} height={28} unoptimized />;
+  return (
+    <Image src="/icons/nova.svg" alt="" width={28} height={28} unoptimized />
+  );
 }
 
 /** Demo overview. `recentReceipt` is a list item (or nothing) placed first in the proof list. */
@@ -72,12 +81,13 @@ export default function Landing({
             Aria Clearing · hackathon demo
           </p>
           <h1 className="font-serif text-[1.75rem] leading-snug sm:text-[2rem]">
-            Clearing for sponsored AI answers: every sponsored line has a receipt, verified by Chainlink, settled on
-            Monad.
+            Clearing for sponsored AI answers: every sponsored line has a
+            receipt, verified by Chainlink, settled on Monad.
           </h1>
           <p className="text-[15px] leading-relaxed text-stone-600">
-            Nova is a separate AI app that shows Aria&apos;s sponsored lines through Aria&apos;s SDK. Aria is the ad
-            network: the publisher dashboard, the advertiser console, the receipts and the clearing.
+            Nova is a separate AI app that shows Aria&apos;s sponsored lines
+            through Aria&apos;s SDK. Aria is the ad network: the publisher
+            dashboard, the advertiser console, the receipts and the clearing.
           </p>
         </header>
 
@@ -87,17 +97,27 @@ export default function Landing({
           </h2>
           <ul className="grid gap-4 md:grid-cols-3">
             {ROLES.map((role) => (
-              <li key={role.href} className="flex flex-col rounded-xl border border-stone-200 bg-white p-5">
+              <li
+                key={role.href}
+                className="flex flex-col rounded-xl border border-stone-200 bg-white p-5"
+              >
                 <div className="flex items-center gap-3">
                   <RoleIcon icon={role.icon} />
                   <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500">{role.kicker}</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500">
+                      {role.kicker}
+                    </p>
                     <h3 className="text-base font-semibold">{role.title}</h3>
                   </div>
                 </div>
-                <p className="mt-3 flex-1 text-sm leading-relaxed text-stone-600">{role.body}</p>
+                <p className="mt-3 flex-1 text-sm leading-relaxed text-stone-600">
+                  {role.body}
+                </p>
                 <Link href={role.href} className={`${BUTTON} mt-4 self-start`}>
-                  {role.action} <span aria-hidden className="ml-1">→</span>
+                  {role.action}{" "}
+                  <span aria-hidden className="ml-1">
+                    →
+                  </span>
                 </Link>
               </li>
             ))}
@@ -117,17 +137,24 @@ export default function Landing({
                   <Link href="/ai-chat" className={TEXT_LINK}>
                     AI chat
                   </Link>{" "}
-                  a buying question, e.g. “Is an e-bike worth it for a 12 km commute?”
+                  a buying question, e.g. “Is an e-bike worth it for a 12 km
+                  commute?”
                 </span>
               </li>
               <li className="flex gap-3">
                 <Step n={2} />
-                <span>Click “Why this ad?” on the sponsored card to see its receipt.</span>
+                <span>
+                  Click “Why this ad?” on the sponsored card to see its receipt.
+                </span>
               </li>
               <li className="flex gap-3">
                 <Step n={3} />
                 <span>
-                  After ~20 s Chainlink settles it: the{" "}
+                  Chainlink settles new events{" "}
+                  <strong className="font-semibold text-stone-900">
+                    every 10 minutes
+                  </strong>
+                  . Within 10 minutes the receipt turns “Verified” and the{" "}
                   <Link href="/dashboard" className={TEXT_LINK}>
                     publisher dashboard
                   </Link>{" "}
@@ -154,24 +181,37 @@ export default function Landing({
             <ul className="mt-3 space-y-2 text-sm">
               {recentReceipt}
               {proofLinks({ contract, envioUrl }).map((link) => (
-                <li key={link.href} className="flex flex-wrap items-baseline gap-x-2">
+                <li
+                  key={link.href}
+                  className="flex flex-wrap items-baseline gap-x-2"
+                >
                   <ExternalLink href={link.href} className={TEXT_LINK}>
                     {link.label}
                   </ExternalLink>
-                  {link.detail && <span className="font-mono text-xs text-stone-500">{link.detail}</span>}
+                  {link.detail && (
+                    <span className="font-mono text-xs text-stone-500">
+                      {link.detail}
+                    </span>
+                  )}
                 </li>
               ))}
             </ul>
           </section>
 
-          <section id="how-it-works" aria-labelledby="how-it-works-title" className="scroll-mt-4">
+          <section
+            id="how-it-works"
+            aria-labelledby="how-it-works-title"
+            className="scroll-mt-4"
+          >
             <h2 id="how-it-works-title" className={HEADING}>
               How it works
             </h2>
             <dl className="mt-3 space-y-1.5 text-sm leading-snug">
               {SPONSORS.map((sponsor) => (
                 <div key={sponsor.name} className="flex gap-2">
-                  <dt className="w-28 shrink-0 font-medium text-stone-900">{sponsor.name}</dt>
+                  <dt className="w-28 shrink-0 font-medium text-stone-900">
+                    {sponsor.name}
+                  </dt>
                   <dd className="text-stone-600">{sponsor.role}</dd>
                 </div>
               ))}
@@ -180,7 +220,9 @@ export default function Landing({
               <ExternalLink href={`${REPO_URL}#readme`} className={TEXT_LINK}>
                 Details in the README
               </ExternalLink>
-              <ShowDemoBar className={`ml-4 text-stone-500 underline underline-offset-4 hover:text-stone-900 ${FOCUS}`} />
+              <ShowDemoBar
+                className={`ml-4 text-stone-500 underline underline-offset-4 hover:text-stone-900 ${FOCUS}`}
+              />
             </p>
           </section>
         </div>
