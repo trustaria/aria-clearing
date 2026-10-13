@@ -89,7 +89,9 @@ shows only what was logged.
 2. **Logging.** When the card has been at least 50 % visible for 1 s, or is clicked through Aria's redirect,
    Aria's relayer calls `logEvent`. The relayer is a **Privy server wallet** whose **Privy policy** allows exactly
    one call: `logEvent` on this contract, on Monad testnet. It cannot move money.
-3. **Dispute window.** The advertiser can `dispute(eventId)` while the window is open (20 s in the demo).
+3. **Dispute window.** The advertiser can `dispute(eventId)` while the window is open. The window is set at deploy:
+   20 s in the demo, so logged → verified → paid fits on screen; in production it would be hours to days, long
+   enough for the advertiser's fraud tooling to review events, and still far faster than ad-network payment terms.
 4. **Verification.** A **Chainlink CRE workflow** reads all pending events in one call, fetches their evidence in
    one HTTP request, applies the rule (impression: viewed ≥ 1 s at ≥ 50 %; click: went through the redirect),
    and writes one report through the Chainlink forwarder to `onReport`.
@@ -132,7 +134,7 @@ Rules: `ops/src/policy.ts`. Probes: `pnpm --filter @aria-clearing/ops privy:prob
 | | That the sentence is a faithful reading of the claims: an LLM wrote it, citing claim numbers |
 | The dispute window passed without a dispute | That viewability was measured honestly: the app's page measures it and reports it; the workflow checks the rule, not the measurement |
 | | Settlement routing: the owner can change the forwarder, and with the permissionless mock forwarder anyone could post a far-future `reportedAt` and stall later reports |
-| | Fair disputes: in the demo a dispute is a free advertiser veto and is always refunded; production needs a bond or an arbiter |
+| | Fair disputes: in the demo a dispute is a free advertiser veto and is always refunded; production needs a bond or an arbiter, and automated disputes by the advertiser's fraud tooling |
 
 Next steps toward production: a second, independent evidence source (advertiser conversion postbacks); per-epoch
 Merkle roots instead of one transaction per event; a deployed DON with the production forwarder.
