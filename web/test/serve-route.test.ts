@@ -8,11 +8,13 @@ import { POST as serve } from "../app/api/v1/serve/route";
 import { isRequestId } from "../lib/request-id";
 import { getServed } from "../lib/served";
 import { DEV_API_KEY } from "../lib/serve/auth";
-import { handleServe, impressionToken } from "../lib/serve/handler";
+import { handleServe } from "../lib/serve/handler";
 import type { Picker } from "../lib/serve/select";
+import { signImpressionToken, verifyImpressionToken } from "../lib/serve/token";
 import { keywordCampaigns, lisbon } from "./fixtures";
 
 const KEY = "ak_test_9Fq2LmZ0tR7wYb3XcVn8Ke1PsAd4Gh6J";
+const SECRET = "token-secret-for-tests";
 const LISBON = "Family trip to Lisbon next spring";
 const RAM = "What's the difference between RAM and storage?";
 
@@ -24,6 +26,7 @@ beforeEach(() => {
   vi.stubEnv("ARIA_EVENTS_FILE", "");
   vi.stubEnv("ARIA_CAMPAIGNS_FILE", "");
   vi.stubEnv("ARIA_API_KEY", KEY);
+  vi.stubEnv("ARIA_TOKEN_SECRET", SECRET);
   vi.stubEnv("ARIA_PUBLISHER_ID", "");
   vi.stubEnv("ARIA_PUBLIC_URL", "");
   vi.stubEnv("GEMINI_API_KEY", "");
@@ -138,11 +141,26 @@ describe("POST /api/v1/serve served", () => {
       },
       claim_refs: expect.any(Array),
       disclosure: { label: "Sponsored", why_url: `http://localhost:3500/receipt/${id}`, why_text: expect.any(String) },
-      impression_token: impressionToken(id, KEY),
+      impression_token: signImpressionToken(id, SECRET),
+      beacon_url: "http://localhost:3500/api/v1/beacon",
       ttl_ms: 600000,
       served_at: body.served_at,
     });
     expect(body.ad.creative.title).toBe(body.ad.creative.advertiser);
+  });
+
+  it("mints an impression token that verifies to the request id under ARIA_TOKEN_SECRET only", async () => {
+    const { body } = await call();
+    expect(verifyImpressionToken(body.ad.impression_token, SECRET)).toBe(body.request_id);
+    expect(verifyImpressionToken(body.ad.impression_token, KEY)).toBeNull();
+  });
+
+  it("answers 503 unavailable when ARIA_TOKEN_SECRET is unset in production", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("ARIA_TOKEN_SECRET", "");
+    const { status, body } = await call();
+    expect(status).toBe(503);
+    expect(body.error.code).toBe("unavailable");
   });
 
   it("records the served ad under the same request_id, as the clearing flow reads it", async () => {

@@ -1,10 +1,10 @@
-import { createHmac } from "node:crypto";
 import { campaignBySlug, type Campaign } from "../campaigns";
 import { buildCard, chainConfig } from "../receipt";
 import { newRequestId } from "../request-id";
 import { rememberServed } from "../served";
-import { ariaApiKey, ariaPublisherId, hasApiKey } from "./auth";
+import { ariaPublisherId, hasApiKey } from "./auth";
 import { selectAd, type Intent, type Picker, type Selection } from "./select";
+import { signImpressionToken, tokenSecret } from "./token";
 
 export const SCHEMA_VERSION = "1";
 export const MAX_PROMPT = 4000;
@@ -15,18 +15,13 @@ const WHY_TEXT = "Shown because your question matched this advertiser's offer.";
 
 export type ServeDeps = { picker: Picker | null; campaigns: Campaign[] };
 
-type ErrorCode = "bad_request" | "invalid_key" | "forbidden";
+type ErrorCode = "bad_request" | "invalid_key" | "forbidden" | "unavailable";
 
-const STATUS: Record<ErrorCode, number> = { bad_request: 400, invalid_key: 401, forbidden: 403 };
+const STATUS: Record<ErrorCode, number> = { bad_request: 400, invalid_key: 401, forbidden: 403, unavailable: 503 };
 
 function error(code: ErrorCode, message: string, requestId?: string): Response {
   const body = { error: requestId ? { code, message, request_id: requestId } : { code, message } };
   return Response.json(body, { status: STATUS[code], headers: { "cache-control": "no-store" } });
-}
-
-/** Opaque per-request value: HMAC-SHA256 of the request id under the API key. */
-export function impressionToken(requestId: string, secret: string): string {
-  return `imp_${createHmac("sha256", secret).update(requestId).digest("base64url")}`;
 }
 
 /** Origin for click and why URLs: ARIA_PUBLIC_URL, else forwarded headers, else the request's own. */
@@ -63,7 +58,14 @@ function parseBody(raw: unknown): Parsed {
 }
 
 /** The served `ad` object; records the card so clicks, impressions, evidence and the receipt resolve. */
-function serveAd(req: Request, requestId: string, selection: Extract<Selection, { decision: "served" }>, servedAt: Date, campaigns: Campaign[]) {
+function serveAd(
+  req: Request,
+  requestId: string,
+  selection: Extract<Selection, { decision: "served" }>,
+  servedAt: Date,
+  campaigns: Campaign[],
+  secret: string,
+) {
   const campaign = campaignBySlug(selection.pick.slug, campaigns)!;
   const card = buildCard({ ...chainConfig(), requestId, campaign, pick: selection.pick });
   rememberServed({
@@ -87,7 +89,8 @@ function serveAd(req: Request, requestId: string, selection: Extract<Selection, 
     },
     claim_refs: card.claimRefs,
     disclosure: { label: "Sponsored", why_url: `${origin}/receipt/${requestId}`, why_text: WHY_TEXT },
-    impression_token: impressionToken(requestId, ariaApiKey() ?? ""),
+    impression_token: signImpressionToken(requestId, secret),
+    beacon_url: `${origin}/api/v1/beacon`,
     ttl_ms: IMPRESSION_TTL_MS,
     served_at: servedAt.toISOString(),
   };
@@ -99,6 +102,8 @@ export async function handleServe(req: Request, deps: ServeDeps): Promise<Respon
   if (!hasApiKey(req)) return error("invalid_key", "missing or invalid API key");
 
   const requestId = newRequestId();
+  const secret = tokenSecret();
+  if (!secret) return error("unavailable", "ARIA_TOKEN_SECRET is not set", requestId);
   const parsed = parseBody(await req.json().catch(() => null));
   if ("error" in parsed) return error("bad_request", parsed.error, requestId);
   if (parsed.publisherId !== ariaPublisherId()) {
@@ -110,7 +115,7 @@ export async function handleServe(req: Request, deps: ServeDeps): Promise<Respon
   const head = { schema_version: SCHEMA_VERSION, request_id: requestId };
 
   if (selection.decision === "served") {
-    const ad = serveAd(req, requestId, selection, servedAt, deps.campaigns);
+    const ad = serveAd(req, requestId, selection, servedAt, deps.campaigns, secret);
     return Response.json(
       {
         ...head,
