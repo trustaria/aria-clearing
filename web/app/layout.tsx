@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
+import { NOVA_ICONS } from "../lib/brand-icons";
 import "./globals.css";
 
 const geistSans = localFont({
@@ -26,6 +27,7 @@ export const metadata: Metadata = {
   },
   description: APP_DESCRIPTION,
   manifest: "/manifest.json",
+  icons: NOVA_ICONS,
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
