@@ -122,13 +122,11 @@ function Sentences({
   minLeft?: number;
 }) {
   return (
-    <Section title="Recent sponsored sentences">
+    <Section title="Recent sponsored sentences" aside={view?.recent.aside}>
       {!view ? (
         <p className="text-sm text-stone-500">Loading…</p>
       ) : view.sentences.length === 0 ? (
-        <p className="text-sm text-stone-500">
-          Nothing yet. When an AI answer recommends {view.brand}, the sentence shows up here within seconds.
-        </p>
+        <p className="text-sm text-stone-500">{view.recent.empty}</p>
       ) : (
         <ul className="divide-y divide-stone-100">
           {view.sentences.map((row) => (
@@ -244,6 +242,10 @@ function AccountDetails({ account }: { account: CampaignView["account"] }) {
         </dd>
         <dt className="text-stone-500">Network</dt>
         <dd>{account.network}</dd>
+        <dt className="text-stone-500">Activity data</dt>
+        <dd>{account.source}</dd>
+        <dt className="text-stone-500">{account.blocksLabel}</dt>
+        <dd className="font-mono">{account.blocks}</dd>
       </dl>
     </details>
   );

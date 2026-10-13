@@ -114,6 +114,38 @@ describe("toCampaignView", () => {
   });
 });
 
+describe("toCampaignView data source", () => {
+  it("names Envio and the indexed blocks, and scopes the sentences to all history", () => {
+    const view = toCampaignView({ ...json, fromBlock: "70726907", toBlock: "70772183" }, NOW);
+    expect(view.account).toMatchObject({
+      source: "Indexed by Envio HyperIndex",
+      blocksLabel: "Blocks indexed",
+      blocks: "70726907–70772183",
+    });
+    expect(view.recent).toEqual({
+      aside: "Latest 3 of 53",
+      empty: "Nothing yet. When an AI answer recommends Crema Works, the sentence shows up here within a minute.",
+    });
+  });
+
+  it("says when every sentence is shown", () => {
+    const counts = { ...json.counts, impressions: 2, clicks: 1, verified: 2, beingVerified: 1, rejected: 0 };
+    expect(toCampaignView({ ...json, counts }, NOW).recent.aside).toBe("All sentences");
+  });
+
+  it("names contract logs and limits the scope to the last 2 hours", () => {
+    const logs = toCampaignView({ ...json, source: "logs" }, NOW);
+    expect(logs.account).toMatchObject({ source: "Read from contract logs", blocksLabel: "Blocks scanned", blocks: "1–2" });
+    expect(logs.recent).toEqual({
+      aside: "Latest 3 of 53 in the last 2 hours",
+      empty: "Nothing in the last 2 hours. When an AI answer recommends Crema Works, the sentence shows up here within seconds.",
+    });
+    const counts = { ...json.counts, impressions: 2, clicks: 1, rejected: 0 };
+    expect(toCampaignView({ ...json, source: "logs", counts }, NOW).recent.aside).toBe("Last 2 hours");
+    expect(toCampaignView({ ...json, source: "logs", sentences: [] }, NOW).recent.aside).toBeUndefined();
+  });
+});
+
 describe("toCampaignView with page actions", () => {
   const after = (...events: ActionEvent[]): Actions => events.reduce(reduceActions, NO_ACTIONS);
 

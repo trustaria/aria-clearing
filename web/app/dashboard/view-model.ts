@@ -45,7 +45,8 @@ export interface DashboardView {
   };
 }
 
-const SOURCES: Record<DataSource, { label: string; blocks: string }> = {
+/** How each data source is named, with the label for its block range. */
+export const SOURCES: Record<DataSource, { label: string; blocks: string }> = {
   envio: { label: "Indexed by Envio HyperIndex", blocks: "Blocks indexed" },
   logs: { label: "Read from contract logs", blocks: "Blocks scanned" },
 };
