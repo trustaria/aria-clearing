@@ -53,6 +53,8 @@ export default function DebugBar({ locked = false }: { locked?: boolean }) {
   const [results, setResults] = useState<ActionResult[]>([]);
   const [events, setEvents] = useState<EventRecord[]>([]);
   const unlocked = useRef(!locked);
+  // The ?debug value taken from the URL on first run; kept so a re-run of the effect still sees it.
+  const captured = useRef<{ value: string | null } | null>(null);
   const hold = useHoldViews();
 
   useEffect(() => {
@@ -61,15 +63,19 @@ export default function DebugBar({ locked = false }: { locked?: boolean }) {
     if (!locked) {
       if (new URLSearchParams(window.location.search).get("debug") === "1") setOpen(true);
     } else {
-      const { value, cleaned } = takeDebugParam(window.location.href);
-      if (value !== null) {
-        saveDemoKey(value);
-        window.history.replaceState(window.history.state, "", cleaned);
+      if (!captured.current) {
+        const { value, cleaned } = takeDebugParam(window.location.href);
+        if (value !== null) {
+          saveDemoKey(value);
+          window.history.replaceState(window.history.state, "", cleaned);
+        }
+        captured.current = { value };
       }
+      const fromUrl = captured.current.value !== null;
       void checkDemoKey().then((ok) => {
         if (!alive) return;
         unlocked.current = ok;
-        if (ok && value !== null) setOpen(true);
+        if (ok && fromUrl) setOpen(true);
       });
     }
     const onKey = (e: KeyboardEvent) => {
@@ -92,7 +98,7 @@ export default function DebugBar({ locked = false }: { locked?: boolean }) {
     const load = () =>
       fetch("/api/aria/events", { cache: "no-store", headers: demoKeyHeaders() })
         .then((res) => res.json())
-        .then((data: { events: EventRecord[] }) => alive && setEvents(data.events))
+        .then((data: { events?: EventRecord[] }) => alive && setEvents(data.events ?? []))
         .catch(() => undefined);
     void load();
     const timer = setInterval(load, 2000);
