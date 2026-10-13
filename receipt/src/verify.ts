@@ -537,7 +537,9 @@ const payoutDeferredEvent = getAbiItem({ abi: ariaClearingAbi, name: "PayoutDefe
  */
 export async function verifyReceipt(requestId: string, options: VerifyOptions): Promise<Receipt> {
   const client: PublicClient =
-    options.client ?? createPublicClient({ transport: http(options.rpcUrl, { retryCount: 5, retryDelay: 300 }) });
+    options.client ?? createPublicClient({
+      transport: http(options.rpcUrl, { retryCount: 5, retryDelay: 300, fetchOptions: { cache: "no-store" } }),
+    });
   const { address } = options;
   const maxRange = options.maxRange ?? MAX_LOG_RANGE;
   const concurrency = options.concurrency ?? DEFAULT_CONCURRENCY;

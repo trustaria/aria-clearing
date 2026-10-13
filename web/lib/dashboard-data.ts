@@ -4,13 +4,13 @@ import {
   erc20Abi,
   getAbiItem,
   getAddress,
-  http,
   type Address,
   type Hex,
   type PublicClient,
 } from "viem";
 import { monadTestnet } from "viem/chains";
 import { knownCampaigns } from "./campaigns";
+import { rpcTransport } from "./chain";
 import { deployment } from "./deployment";
 import { getPublisherIndex, type IndexedEvent, type PublisherIndex } from "./envio";
 
@@ -336,7 +336,7 @@ let sharedClient: PublicClient | undefined;
 function client(): PublicClient {
   sharedClient ??= createPublicClient({
     chain: monadTestnet,
-    transport: http(deployment().rpcUrl, { retryCount: 3, retryDelay: 300 }),
+    transport: rpcTransport(deployment().rpcUrl, { retryCount: 3, retryDelay: 300 }),
   }) as PublicClient;
   return sharedClient;
 }

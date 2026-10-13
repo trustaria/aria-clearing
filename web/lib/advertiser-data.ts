@@ -1,8 +1,8 @@
 import { ariaClearingAbi, Kind, MAX_LOG_RANGE } from "@aria-clearing/receipt";
-import { createPublicClient, getAbiItem, http, type Address, type Hex, type PublicClient } from "viem";
+import { createPublicClient, getAbiItem, type Address, type Hex, type PublicClient } from "viem";
 import { monadTestnet } from "viem/chains";
 import type { CampaignStatus, StoredCampaign } from "./campaign-store";
-import { DISPUTE_WINDOW_S } from "./chain";
+import { DISPUTE_WINDOW_S, rpcTransport } from "./chain";
 import { deployment } from "./deployment";
 
 /** Blocks scanned back from the head (~2 hours on Monad); the funds come from contract state regardless. */
@@ -253,7 +253,7 @@ let sharedClient: PublicClient | undefined;
 function client(): PublicClient {
   sharedClient ??= createPublicClient({
     chain: monadTestnet,
-    transport: http(deployment().rpcUrl, { retryCount: 3, retryDelay: 300 }),
+    transport: rpcTransport(deployment().rpcUrl, { retryCount: 3, retryDelay: 300 }),
   }) as PublicClient;
   return sharedClient;
 }

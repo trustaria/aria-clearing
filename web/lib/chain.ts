@@ -1,4 +1,4 @@
-import { createPublicClient, createWalletClient, http, type Hex, type PublicClient } from "viem";
+import { createPublicClient, createWalletClient, http, type Hex, type HttpTransportConfig, type PublicClient } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { monadTestnet } from "viem/chains";
 import deployment from "../../deployments/10143.json";
@@ -10,8 +10,13 @@ export function clearingAddress(): Hex {
   return (process.env.NEXT_PUBLIC_CLEARING_ADDRESS || deployment.address) as Hex;
 }
 
+/** HTTP transport whose requests skip Next's fetch cache, so chain reads are always fresh. */
+export function rpcTransport(url: string, options: Omit<HttpTransportConfig, "fetchOptions"> = {}) {
+  return http(url, { ...options, fetchOptions: { cache: "no-store" } });
+}
+
 function transport() {
-  return http(process.env.MONAD_TESTNET_RPC_URL || monadTestnet.rpcUrls.default.http[0]);
+  return rpcTransport(process.env.MONAD_TESTNET_RPC_URL || monadTestnet.rpcUrls.default.http[0]);
 }
 
 let reader: PublicClient | undefined;
