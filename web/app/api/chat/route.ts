@@ -1,4 +1,4 @@
-import { extractPromptAndContext } from "@trustaria/core";
+import { extractPromptAndContext, type AdPayload } from "@trustaria/core";
 import { adToPick, ariaClient } from "@/lib/aria";
 import { allCampaigns, campaignBySlug } from "@/lib/campaigns";
 import { activeModel, streamAnswer, type ChatFrame, type ChatMessage } from "@/lib/kimi";
@@ -25,11 +25,13 @@ function parseSessionId(body: unknown): string | undefined {
   return typeof id === "string" && id.length > 0 && id.length <= MAX_SESSION_ID ? id : undefined;
 }
 
+type Served = { card: CardData; ad: AdPayload };
+
 /**
- * Asks Aria's serve API for an ad and turns it into Nova's card, re-validated against Nova's
- * campaign list. Resolves null on a no-fill, a timeout or any failure.
+ * Asks Aria's serve API for an ad: the payload AriaAdCard renders, plus Nova's receipt for it,
+ * re-validated against Nova's campaign list. Resolves null on a no-fill, a timeout or any failure.
  */
-async function servedCard(messages: ChatMessage[], sessionId: string | undefined): Promise<CardData | null> {
+async function servedCard(messages: ChatMessage[], sessionId: string | undefined): Promise<Served | null> {
   const input = extractPromptAndContext(messages);
   if (!input) return null;
   try {
@@ -37,11 +39,11 @@ async function servedCard(messages: ChatMessage[], sessionId: string | undefined
     const campaigns = allCampaigns();
     const pick = adToPick(result, campaigns);
     const campaign = pick && campaignBySlug(pick.slug, campaigns);
-    if (!pick || !campaign || !result.requestId) {
+    if (!result.ad || !pick || !campaign || !result.requestId) {
       if (result.ad) console.warn(`served ad ${result.requestId} rejected by Nova's validation`);
       return null;
     }
-    return buildCard({ ...chainConfig(), requestId: result.requestId, campaign, pick });
+    return { card: buildCard({ ...chainConfig(), requestId: result.requestId, campaign, pick }), ad: result.ad };
   } catch (error) {
     console.warn(`card failed: ${(error as Error).message}`);
     return null;
@@ -98,7 +100,7 @@ export async function POST(req: Request) {
       }
 
       const served = await card;
-      if (served) send({ type: "card", card: served });
+      if (served) send({ type: "card", ...served });
 
       send({ type: "done" });
       if (!abort.signal.aborted) controller.close();

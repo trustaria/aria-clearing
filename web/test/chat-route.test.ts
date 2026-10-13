@@ -75,6 +75,24 @@ describe("/api/chat with the stub", () => {
     });
   });
 
+  it("carries the served ad payload for AriaAdCard beside the card's receipt", async () => {
+    routeServeFetch();
+    const frame = (await frames("Family trip to Lisbon next spring")).find((f) => f.type === "card");
+    if (frame?.type !== "card") throw new Error("no card");
+    const { ad, card } = frame;
+    expect(ad.requestId).toBe(card.requestId);
+    expect(ad.offerId).toBe(card.slug);
+    expect(ad.creative.body).toBe(card.rationale);
+    expect(ad.creative.clickUrl).toBe(`http://127.0.0.1:3000/api/aria/click/${card.requestId}`);
+    expect(ad.beaconUrl).toBe("http://127.0.0.1:3000/api/v1/beacon");
+    expect(ad.impressionToken.startsWith(`${card.requestId}.`)).toBe(true);
+    const why = new URL(ad.disclosure.whyUrl);
+    expect(why.pathname).toBe(`/receipt/${card.requestId}`);
+    expect(why.searchParams.get("h")).toBe(card.receipt.rationaleHash);
+    expect(why.searchParams.get("c")).toBe(card.receipt.claimsHash);
+    expect(ad.disclosure.whyText).toBeUndefined();
+  });
+
   it("sends the latest user message as prompt, the one before as context, and the session id", async () => {
     const bodies = routeServeFetch();
     await frames(

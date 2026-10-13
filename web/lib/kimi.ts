@@ -1,3 +1,4 @@
+import type { AdPayload } from "@trustaria/core";
 import OpenAI from "openai";
 import { kimiLimiter } from "./kimi-limiter";
 import type { CardData } from "./receipt";
@@ -11,7 +12,7 @@ export type ModelName = "kimi" | "stub";
 export type ChatFrame =
   | { type: "meta"; model: ModelName }
   | { type: "text"; delta: string }
-  | { type: "card"; card: CardData }
+  | { type: "card"; card: CardData; ad: AdPayload }
   | { type: "notice"; message: string }
   | { type: "error"; message: string }
   | { type: "done" };
