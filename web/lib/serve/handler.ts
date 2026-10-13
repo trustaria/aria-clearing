@@ -13,11 +13,11 @@ export const IMPRESSION_TTL_MS = 600_000;
 
 export type ServeDeps = { picker: Picker | null; campaigns: Campaign[] };
 
-type ErrorCode = "bad_request" | "invalid_key" | "forbidden" | "unavailable";
+export type ErrorCode = "bad_request" | "invalid_key" | "forbidden" | "unavailable";
 
 const STATUS: Record<ErrorCode, number> = { bad_request: 400, invalid_key: 401, forbidden: 403, unavailable: 503 };
 
-function error(code: ErrorCode, message: string, requestId?: string): Response {
+export function apiError(code: ErrorCode, message: string, requestId?: string): Response {
   const body = { error: requestId ? { code, message, request_id: requestId } : { code, message } };
   return Response.json(body, { status: STATUS[code], headers: { "cache-control": "no-store" } });
 }
@@ -98,15 +98,15 @@ function serveAd(
 /** POST /v1/serve: authenticates, validates, selects at most one campaign and answers per the serve wire contract. */
 export async function handleServe(req: Request, deps: ServeDeps): Promise<Response> {
   const started = Date.now();
-  if (!hasApiKey(req)) return error("invalid_key", "missing or invalid API key");
+  if (!hasApiKey(req)) return apiError("invalid_key", "missing or invalid API key");
 
   const requestId = newRequestId();
   const secret = tokenSecret();
-  if (!secret) return error("unavailable", "ARIA_TOKEN_SECRET is not set", requestId);
+  if (!secret) return apiError("unavailable", "ARIA_TOKEN_SECRET is not set", requestId);
   const parsed = parseBody(await req.json().catch(() => null));
-  if ("error" in parsed) return error("bad_request", parsed.error, requestId);
+  if ("error" in parsed) return apiError("bad_request", parsed.error, requestId);
   if (parsed.publisherId !== ariaPublisherId()) {
-    return error("forbidden", "publisher_id does not match the API key", requestId);
+    return apiError("forbidden", "publisher_id does not match the API key", requestId);
   }
 
   const selection = await selectAd({ prompt: parsed.prompt, context: parsed.context, campaigns: deps.campaigns }, deps.picker);
