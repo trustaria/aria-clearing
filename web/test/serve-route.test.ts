@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { campaignIdOf } from "@aria-clearing/receipt";
+import { campaignIdOf, claimsHash, formatClaims, normalizeRationale, rationaleHash } from "@aria-clearing/receipt";
 import { fromWire } from "@trustaria/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST as serve } from "../app/api/v1/serve/route";
@@ -140,13 +140,22 @@ describe("POST /api/v1/serve served", () => {
         logo_url: null,
       },
       claim_refs: expect.any(Array),
-      disclosure: { label: "Sponsored", why_url: `http://localhost:3500/receipt/${id}`, why_text: expect.any(String) },
+      disclosure: { label: "Sponsored", why_url: expect.stringMatching(`^http://localhost:3500/receipt/${id}\\?`) },
       impression_token: signImpressionToken(id, SECRET),
       beacon_url: "http://localhost:3500/api/v1/beacon",
       ttl_ms: 600000,
       served_at: body.served_at,
     });
     expect(body.ad.creative.title).toBe(body.ad.creative.advertiser);
+    expect(body.ad.disclosure).not.toHaveProperty("why_text");
+  });
+
+  it("puts the served card's rationale and claims hashes in why_url as h and c", async () => {
+    const { body } = await call();
+    const why = new URL(body.ad.disclosure.why_url);
+    expect(why.pathname).toBe(`/receipt/${body.request_id}`);
+    expect(why.searchParams.get("h")).toBe(rationaleHash(normalizeRationale(body.ad.creative.body)));
+    expect(why.searchParams.get("c")).toBe(claimsHash(formatClaims(lisbon.claims)));
   });
 
   it("mints an impression token that verifies to the request id under ARIA_TOKEN_SECRET only", async () => {
@@ -200,7 +209,7 @@ describe("POST /api/v1/serve served", () => {
     vi.stubEnv("ARIA_PUBLIC_URL", "https://aria.example.com/");
     const { body } = await call();
     expect(body.ad.creative.click_url).toBe(`https://aria.example.com/api/aria/click/${body.request_id}`);
-    expect(body.ad.disclosure.why_url).toBe(`https://aria.example.com/receipt/${body.request_id}`);
+    expect(body.ad.disclosure.why_url).toMatch(`https://aria.example.com/receipt/${body.request_id}?h=0x`);
   });
 
   it("builds absolute URLs from forwarded headers when ARIA_PUBLIC_URL is unset", async () => {

@@ -1,5 +1,5 @@
 import { campaignBySlug, type Campaign } from "../campaigns";
-import { buildCard, chainConfig } from "../receipt";
+import { buildCard, chainConfig, receiptHref } from "../receipt";
 import { newRequestId } from "../request-id";
 import { rememberServed } from "../served";
 import { ariaPublisherId, hasApiKey } from "./auth";
@@ -10,8 +10,6 @@ export const SCHEMA_VERSION = "1";
 export const MAX_PROMPT = 4000;
 export const MAX_CONTEXT = 2000;
 export const IMPRESSION_TTL_MS = 600_000;
-
-const WHY_TEXT = "Shown because your question matched this advertiser's offer.";
 
 export type ServeDeps = { picker: Picker | null; campaigns: Campaign[] };
 
@@ -88,7 +86,8 @@ function serveAd(
       logo_url: null,
     },
     claim_refs: card.claimRefs,
-    disclosure: { label: "Sponsored", why_url: `${origin}/receipt/${requestId}`, why_text: WHY_TEXT },
+    // No why_text: the receipt page is the explanation, so "Why this ad?" links straight to it.
+    disclosure: { label: "Sponsored", why_url: `${origin}${receiptHref(card)}` },
     impression_token: signImpressionToken(requestId, secret),
     beacon_url: `${origin}/api/v1/beacon`,
     ttl_ms: IMPRESSION_TTL_MS,
