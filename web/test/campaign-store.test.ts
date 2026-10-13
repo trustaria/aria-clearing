@@ -97,7 +97,7 @@ describe("campaign store", () => {
   });
 
   it("keeps the funding and the advertiser wallet of a wallet-funded record", () => {
-    const wallet = "0x9F1C2A8b7E6d5C4b3A2918070605040302010abc" as const;
+    const wallet = "0x9f1c2a8b7e6d5c4b3a2918070605040302010abc" as const;
     saveCampaign(crema({ funding: "wallet", advertiserAddress: wallet }));
     const record = getStoredCampaign("crema-works-a1b2");
     expect(record && fundingOf(record)).toBe("wallet");
