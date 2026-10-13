@@ -27,3 +27,9 @@ export const planner: Campaign = {
 };
 
 export const campaigns = [lisbon, planner];
+
+/** The fixtures with buyer keywords, for the keyword selector. */
+export const keywordCampaigns: Campaign[] = [
+  { ...lisbon, keywords: ["lisbon", "family trip", "algarve"] },
+  { ...planner, keywords: ["project planning", "agency"] },
+];

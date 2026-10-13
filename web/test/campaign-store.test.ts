@@ -13,9 +13,10 @@ import {
   updateCampaign,
   type StoredCampaign,
 } from "../lib/campaign-store";
-import { allCampaigns, campaignBySlug, campaigns, describeCampaigns } from "../lib/campaigns";
+import { allCampaigns, campaignBySlug, campaigns } from "../lib/campaigns";
 import { advertiserNames } from "../lib/dashboard-data";
 import { validatePick } from "../lib/pick";
+import { describeCampaigns } from "../lib/serve/select";
 import { stubPick } from "../lib/stub";
 
 function crema(overrides: Partial<StoredCampaign> = {}): StoredCampaign {

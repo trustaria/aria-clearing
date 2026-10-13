@@ -1,7 +1,8 @@
 import OpenAI from "openai";
 import type { CompletionUsage } from "openai/resources/completions";
-import { describeCampaigns, type Campaign } from "./campaigns";
+import type { Campaign } from "./campaigns";
 import { kimiLimiter } from "./kimi-limiter";
+import { describeCampaigns } from "./serve/select";
 import { MAX_RATIONALE, parsePickJson, validatePick, type Pick } from "./pick";
 import type { CardData } from "./receipt";
 import { FALLBACK_ANSWER, STUB_ANSWER, stubAnswer, stubPick } from "./stub";
