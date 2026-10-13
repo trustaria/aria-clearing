@@ -42,5 +42,9 @@ export function parseBeacon(text: string): ImpressionInput | null {
 export async function handleBeacon(req: Request): Promise<Response> {
   const input = parseBeacon(await req.text().catch(() => ""));
   if (!input) return beaconResponse(400);
-  return beaconResponse(STATUS[recordImpression(input)]);
+  const outcome = recordImpression(input);
+  if (outcome === "bad_token" || outcome === "unavailable") {
+    console.warn(`beacon ${input.requestId.slice(0, 64)} rejected: ${outcome}`);
+  }
+  return beaconResponse(STATUS[outcome]);
 }

@@ -206,22 +206,30 @@ describe("POST /api/v1/beacon", () => {
       "a valid token for a request that was never served",
       body({ request_id: UNSERVED, impression_token: signImpressionToken(UNSERVED, SECRET) }),
     ],
-  ])("answers 401 to %s", async (_name, payload) => {
+  ])("answers 401 to %s and warns with the request id", async (_name, payload) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     await expectEmpty(await send(payload), 401);
     expect(eventStore().listEvents()).toEqual([]);
     expect(mocks.sendFromRelayer).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(`beacon ${payload.request_id} rejected: bad_token`);
+    warn.mockRestore();
   });
 
   it("answers 503 without logging when no publisher address is known", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     mocks.publisher.mockReturnValue(undefined);
     await expectEmpty(await send(body()), 503);
     expect(mocks.sendFromRelayer).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(`beacon ${SERVED} rejected: unavailable`);
+    warn.mockRestore();
   });
 
   it("answers 503 in production without ARIA_TOKEN_SECRET", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.stubEnv("ARIA_TOKEN_SECRET", "");
     vi.stubEnv("NODE_ENV", "production");
     await expectEmpty(await send(body()), 503);
+    vi.mocked(console.warn).mockRestore();
   });
 
   it("answers the CORS preflight with 204", async () => {
