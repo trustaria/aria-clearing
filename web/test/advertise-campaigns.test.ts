@@ -11,9 +11,12 @@ import {
 } from "viem";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  budgetCapMessage,
   createCampaignHandlers,
   LAUNCH_FAILED,
   LAUNCH_IN_PROGRESS,
+  launchLimitMessage,
+  launchLimitsFromEnv,
   lowFundsMessage,
   slugify,
   toUsdcUnits,
@@ -515,5 +518,65 @@ describe("GET /api/advertise/campaigns", () => {
     await handlers.POST(post(BODY));
     const body = await (await handlers.GET(get())).json();
     expect(body.campaigns[0]).toMatchObject({ spent: 0, budget: 500 });
+  });
+});
+
+describe("launch limits", () => {
+  const withKey = (req: Request) => {
+    req.headers.set("x-demo", "1");
+    return req;
+  };
+  const bypass = (req: Request) => req.headers.get("x-demo") === "1";
+  const counter = () => {
+    let n = 0;
+    return () => `s${n++}`;
+  };
+
+  it("refuses a budget over the per-campaign cap with a plain message", async () => {
+    const { handlers, deps } = setup({ limits: () => ({ maxBudgetCents: 500 }), bypass });
+    const res = await handlers.POST(post({ ...BODY, budgetCents: 501 }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ field: "budgetCents", code: "limit", error: budgetCapMessage(500) });
+    expect(budgetCapMessage(500)).toBe("Test campaigns can spend up to $5.00 each. Lower your budget to launch.");
+    expect(deps.launch).not.toHaveBeenCalled();
+    expect((await handlers.POST(post({ ...BODY, budgetCents: 500 }))).status).toBe(200);
+  });
+
+  it("refuses a launch once the advertiser used their launches", async () => {
+    const { handlers, deps } = setup({ limits: () => ({ perUser: 2 }), bypass, suffix: counter() });
+    expect((await handlers.POST(post(BODY))).status).toBe(200);
+    expect((await handlers.POST(post(BODY))).status).toBe(200);
+    const res = await handlers.POST(post(BODY));
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ code: "limit", error: launchLimitMessage(2) });
+    expect(launchLimitMessage(2)).toBe("This account has used its 2 test launches. Thanks for trying Aria!");
+    expect(launchLimitMessage(1)).toBe("This account has used its 1 test launch. Thanks for trying Aria!");
+    expect(deps.launch).toHaveBeenCalledTimes(2);
+    expect((await handlers.POST(post(BODY, "bob"))).status).toBe(200);
+  });
+
+  it("lets a request with the demo key past both limits", async () => {
+    const { handlers } = setup({ limits: () => ({ maxBudgetCents: 100, perUser: 1 }), bypass, suffix: counter() });
+    expect((await handlers.POST(withKey(post({ ...BODY, budgetCents: 500 })))).status).toBe(200);
+    expect((await handlers.POST(withKey(post({ ...BODY, budgetCents: 500 })))).status).toBe(200);
+  });
+
+  it("caps the GET maximum at the per-campaign cap unless the demo key is sent", async () => {
+    const { handlers } = setup({ balance: async () => 18_404_321n, limits: () => ({ maxBudgetCents: 500 }), bypass });
+    expect((await (await handlers.GET(get())).json()).maxBudget).toBe(500);
+    expect((await (await handlers.GET(withKey(get()))).json()).maxBudget).toBe(1840);
+  });
+
+  it("reads the limits from ARIA_LAUNCH_MAX_USD and ARIA_LAUNCH_PER_USER", () => {
+    vi.stubEnv("ARIA_LAUNCH_MAX_USD", "");
+    vi.stubEnv("ARIA_LAUNCH_PER_USER", "");
+    expect(launchLimitsFromEnv()).toEqual({});
+    vi.stubEnv("ARIA_LAUNCH_MAX_USD", "25.5");
+    vi.stubEnv("ARIA_LAUNCH_PER_USER", "3");
+    expect(launchLimitsFromEnv()).toEqual({ maxBudgetCents: 2550, perUser: 3 });
+    vi.stubEnv("ARIA_LAUNCH_MAX_USD", "abc");
+    vi.stubEnv("ARIA_LAUNCH_PER_USER", "-1");
+    expect(launchLimitsFromEnv()).toEqual({});
+    vi.unstubAllEnvs();
   });
 });

@@ -1,6 +1,7 @@
 import { ariaClearingAbi } from "@aria-clearing/receipt";
 import { BaseError, type Hex } from "viem";
 import { advertiserWallet, clearingAddress, DISPUTE_WINDOW_S, publicClient } from "@/lib/chain";
+import { requireDemoKey } from "@/lib/demo-key";
 import { eventStore } from "@/lib/store";
 
 export const runtime = "nodejs";
@@ -16,6 +17,8 @@ function message(err: unknown): string {
  * Targets the given eventId, else the newest logged, undisputed event still inside the window.
  */
 export async function POST(req: Request) {
+  const denied = requireDemoKey(req);
+  if (denied) return denied;
   const body = (await req.json().catch(() => null)) as { eventId?: unknown } | null;
   const store = eventStore();
   const cutoff = Date.now() - DISPUTE_WINDOW_S * 1000;

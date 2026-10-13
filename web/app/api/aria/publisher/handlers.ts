@@ -1,5 +1,6 @@
 import { getAddress, isAddress } from "viem";
 import type { DashboardJson } from "../../../../lib/dashboard-data";
+import { requireDemoKey } from "../../../../lib/demo-key";
 import type { PublisherStore } from "../../../../lib/publisher";
 
 type Deps = {
@@ -11,10 +12,12 @@ function json(body: unknown, status = 200): Response {
   return Response.json(body, { status, headers: { "cache-control": "no-store" } });
 }
 
-/** POST sets the publisher events are credited to; GET returns its balances and recent events. */
+/** POST sets the publisher events are credited to (demo key required when set); GET returns its balances and recent events. */
 export function createPublisherHandlers({ store, load }: Deps) {
   return {
     async POST(request: Request): Promise<Response> {
+      const denied = requireDemoKey(request);
+      if (denied) return denied;
       let body: unknown;
       try {
         body = await request.json();

@@ -1,5 +1,6 @@
 import { MONAD_TESTNET_CAIP2, MONAD_TESTNET_CHAIN_ID, privyErrorCode } from "@aria-clearing/ops";
 import { authorizationContext, privyClient } from "@aria-clearing/ops";
+import { requireDemoKey } from "@/lib/demo-key";
 import { publisherStore } from "@/lib/publisher";
 
 export const runtime = "nodejs";
@@ -9,7 +10,9 @@ export const dynamic = "force-dynamic";
 const AMOUNT_WEI = "0x38d7ea4c68000";
 
 /** The relayer tries to send 0.001 MON to the publisher; its Privy policy only allows logEvent. */
-export async function POST() {
+export async function POST(req: Request) {
+  const denied = requireDemoKey(req);
+  if (denied) return denied;
   const publisher = publisherStore.get();
   if (!publisher) return Response.json({ error: "No publisher address to pay." }, { status: 409 });
   const walletId = process.env.RELAYER_WALLET_ID;

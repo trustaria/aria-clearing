@@ -40,7 +40,14 @@ async function readFrames(res: Response, onFrame: (frame: ChatFrame) => void) {
   }
 }
 
-export default function Chat({ initialModel }: { initialModel: ModelName | null }) {
+export default function Chat({
+  initialModel,
+  debugLocked = false,
+}: {
+  initialModel: ModelName | null;
+  /** True when the debug bar needs the demo key. */
+  debugLocked?: boolean;
+}) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -98,7 +105,7 @@ export default function Chat({ initialModel }: { initialModel: ModelName | null 
 
   return (
     <div className="mx-auto flex min-h-screen max-w-2xl flex-col px-4">
-      <DebugBar />
+      <DebugBar locked={debugLocked} />
       <header className="flex items-center justify-between py-5">
         <div className="flex items-center gap-3">
           <span className="text-lg font-semibold tracking-tight">Nova</span>

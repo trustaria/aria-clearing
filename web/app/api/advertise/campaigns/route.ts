@@ -4,9 +4,10 @@ import { verifyAdvertiser } from "@/lib/advertiser-auth";
 import { listCampaignsByOwner, saveCampaign } from "@/lib/campaign-store";
 import { campaignBySlug } from "@/lib/campaigns";
 import { publicClient } from "@/lib/chain";
+import { hasDemoKey } from "@/lib/demo-key";
 import { deployment } from "@/lib/deployment";
 import { launchCampaign, treasuryUsdcBalance } from "@/lib/treasury";
-import { createCampaignHandlers } from "./handlers";
+import { createCampaignHandlers, launchLimitsFromEnv } from "./handlers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,6 +30,8 @@ const handlers = createCampaignHandlers({
   listByOwner: listCampaignsByOwner,
   slugTaken: (slug) => campaignBySlug(slug) !== undefined,
   campaignState,
+  limits: launchLimitsFromEnv,
+  bypass: hasDemoKey,
 });
 
 export const GET = handlers.GET;

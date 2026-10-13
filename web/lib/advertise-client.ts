@@ -1,6 +1,8 @@
 // Client for /api/advertise/*. Money fields are whole US cents.
 // NEXT_PUBLIC_ADVERTISE_MOCK=1 swaps in an in-memory fake with the same contract.
 
+import { demoKeyHeaders } from "./demo-key-client";
+
 export type DraftInput = { brand: string; url: string; description: string };
 export type DraftResult = { claims: string[]; category: string; keywords: string[] } | { manual: true };
 
@@ -63,6 +65,7 @@ export function createHttpClient(getToken: GetToken, fetchImpl: typeof fetch = f
       headers: {
         ...(init ? { "content-type": "application/json" } : {}),
         ...(token ? { authorization: `Bearer ${token}` } : {}),
+        ...demoKeyHeaders(),
       },
       body: init ? JSON.stringify(init.body) : undefined,
     });

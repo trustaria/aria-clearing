@@ -6,6 +6,7 @@ import { getAddress, type Address } from "viem";
 import { toDashboardView, type CardView, type DashboardView, type FeedRow } from "../../app/dashboard/view-model";
 import type { Tone } from "../../app/receipt/view-model";
 import type { DashboardJson } from "../../lib/dashboard-data";
+import { demoKeyHeaders } from "../../lib/demo-key-client";
 import { Section } from "../receipt/ReceiptDocument";
 import IntegrationPanel from "./IntegrationPanel";
 import RetryPayoutButton from "./RetryPayoutButton";
@@ -65,14 +66,17 @@ export default function Dashboard({ clearing }: { clearing: Address }) {
   }, [user]);
 
   // Registers the signed-in account as the publisher that events are credited to.
+  // A 403 means registration needs the demo key; the panel still reads this account's numbers.
   useEffect(() => {
     if (!account) return;
     fetch("/api/aria/publisher", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...demoKeyHeaders() },
       body: JSON.stringify({ address: account }),
     })
-      .then((res) => setRegisterError(res.ok ? null : "Could not connect your account to Aria. Try again shortly."))
+      .then((res) =>
+        setRegisterError(res.ok || res.status === 403 ? null : "Could not connect your account to Aria. Try again shortly."),
+      )
       .catch(() => setRegisterError("Could not connect your account to Aria. Try again shortly."));
   }, [account]);
 

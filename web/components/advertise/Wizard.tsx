@@ -12,7 +12,6 @@ import {
   DEFAULT_CPC_CENTS,
   DEFAULT_CPM_CENTS,
   DRAFT_FAILED,
-  LAUNCH_FAILED,
   SITE_DRAFTED,
   TOPICS_MAX,
   applySiteDraft,
@@ -27,6 +26,7 @@ import {
   displayHost,
   displayUrl,
   dollars,
+  launchErrorCopy,
   normalizeClaim,
   parseDollars,
   siteFailedCopy,
@@ -923,7 +923,7 @@ export default function Wizard({
       return;
     }
     setProgress(null);
-    setLaunchError(result.error.startsWith("Test funds are low") ? result.error : LAUNCH_FAILED);
+    setLaunchError(launchErrorCopy(result.error));
     setSubmitting(false);
     launching.current = false;
   };

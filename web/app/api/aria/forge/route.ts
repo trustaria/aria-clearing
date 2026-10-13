@@ -1,3 +1,4 @@
+import { requireDemoKey } from "@/lib/demo-key";
 import { eventIdFor, submitEvent } from "@/lib/events";
 import { eventStore } from "@/lib/store";
 
@@ -9,6 +10,8 @@ export const dynamic = "force-dynamic";
  * (viewMs 0, visibleRatio 0). Targets the given requestId, else the newest card with no impression.
  */
 export async function POST(req: Request) {
+  const denied = requireDemoKey(req);
+  if (denied) return denied;
   const body = (await req.json().catch(() => null)) as { requestId?: unknown } | null;
   const store = eventStore();
   const unviewed = (requestId: string) => !store.getEvent(eventIdFor(requestId, "impression"));

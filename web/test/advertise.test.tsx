@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import {
+  LAUNCH_FAILED,
   SITE_DRAFT_FAILED,
   SITE_DRAFTED,
   SITE_UNREADABLE,
@@ -13,6 +14,7 @@ import {
   cpcError,
   cpmError,
   dollars,
+  launchErrorCopy,
   normalizeClaim,
   parseDollars,
   previewSentence,
@@ -158,6 +160,35 @@ describe("Step 4: launch", () => {
     expect(html).toContain("Approved claims saved");
     expect(html).toContain("$5.00 held for your campaign");
     expect(html).toContain("Making it available to AI answers…");
+  });
+});
+
+describe("launch errors", () => {
+  it("shows the server's message, else the generic failure", () => {
+    const limit = "This account has used its 2 test launches. Thanks for trying Aria!";
+    expect(launchErrorCopy(limit)).toBe(limit);
+    expect(launchErrorCopy("")).toBe(LAUNCH_FAILED);
+  });
+
+  it("passes a launch-limit refusal through the client", async () => {
+    const error = "Test campaigns can spend up to $5.00 each. Lower your budget to launch.";
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ error, field: "budgetCents", code: "limit" }), { status: 400 }));
+    const client = createHttpClient(async () => "tok", fetchImpl as unknown as typeof fetch);
+    const result = await client.launch({ ...product, claims, category: "food and drink", keywords: [], budgetCents: 900, cpcCents: 25, cpmCents: 1000 });
+    expect("error" in result && launchErrorCopy(result.error)).toBe(error);
+  });
+
+  it("sends this tab's demo key with advertiser requests", async () => {
+    const values = new Map([["aria.demoKey", "k3y"]]);
+    vi.stubGlobal("window", { sessionStorage: { getItem: (k: string) => values.get(k) ?? null, setItem: vi.fn(), removeItem: vi.fn() } });
+    try {
+      const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ campaigns: [], maxBudget: 0 }), { status: 200 }));
+      await createHttpClient(async () => "tok", fetchImpl as unknown as typeof fetch).listCampaigns();
+      const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+      expect((init.headers as Record<string, string>)["x-aria-demo-key"]).toBe("k3y");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 

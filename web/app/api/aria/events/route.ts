@@ -1,3 +1,4 @@
+import { requireDemoKey } from "@/lib/demo-key";
 import { submitEvent } from "@/lib/events";
 import { isRequestId } from "@/lib/request-id";
 import { eventStore } from "@/lib/store";
@@ -47,7 +48,9 @@ export async function POST(req: Request) {
 }
 
 /** Recent events and served cards, newest first, for the debug bar. */
-export async function GET() {
+export async function GET(req: Request) {
+  const denied = requireDemoKey(req);
+  if (denied) return denied;
   const store = eventStore();
   return Response.json(
     {

@@ -13,6 +13,27 @@ const LAUNCH_ATTEMPTS = 3;
 export const LAUNCH_FAILED = "We couldn't launch right now. Nothing was charged. Try again in a minute.";
 export const LAUNCH_IN_PROGRESS = "Your last campaign is still launching. Try again in a moment.";
 
+/** Per-campaign budget cap and launches per advertiser; an absent field means no limit. */
+export type LaunchLimits = { maxBudgetCents?: number; perUser?: number };
+
+export function budgetCapMessage(maxCents: number): string {
+  return `Test campaigns can spend up to ${formatUsd(maxCents)} each. Lower your budget to launch.`;
+}
+
+export function launchLimitMessage(perUser: number): string {
+  return `This account has used its ${perUser} test launch${perUser === 1 ? "" : "es"}. Thanks for trying Aria!`;
+}
+
+/** ARIA_LAUNCH_MAX_USD (dollars) and ARIA_LAUNCH_PER_USER (count); unset or invalid values mean no limit. */
+export function launchLimitsFromEnv(): LaunchLimits {
+  const limits: LaunchLimits = {};
+  const maxUsd = Number(process.env.ARIA_LAUNCH_MAX_USD || NaN);
+  if (Number.isFinite(maxUsd) && maxUsd > 0) limits.maxBudgetCents = Math.round(maxUsd * 100);
+  const perUser = Number(process.env.ARIA_LAUNCH_PER_USER || NaN);
+  if (Number.isInteger(perUser) && perUser > 0) limits.perUser = perUser;
+  return limits;
+}
+
 /** The §3.7 low-funds copy for a treasury balance in USDC units. */
 export function lowFundsMessage(available: bigint): string {
   return `Test funds are low: up to ${formatUsd(centsOf(available))} is available right now. Lower your budget or try again later.`;
@@ -172,6 +193,9 @@ export type Deps = {
   slugTaken: (slug: string) => boolean;
   /** Onchain `available` and `reserved` of a campaign, or null when unreadable. */
   campaignState: (campaignId: Hex) => Promise<CampaignState | null>;
+  limits?: () => LaunchLimits;
+  /** True when the request may skip the launch limits. */
+  bypass?: (req: Request) => boolean;
   suffix?: () => string;
   now?: () => number;
 };
@@ -192,6 +216,7 @@ const inFlight = (globalLaunches.__ariaLaunchesInFlight ??= new Map<string, InFl
 export function createCampaignHandlers(deps: Deps) {
   const suffix = deps.suffix ?? randomSuffix;
   const now = deps.now ?? Date.now;
+  const limitsFor = (req: Request): LaunchLimits => (deps.bypass?.(req) ? {} : (deps.limits?.() ?? {}));
 
   function freshSlug(brand: string): string | null {
     const base = slugify(brand);
@@ -283,7 +308,9 @@ export function createCampaignHandlers(deps: Deps) {
           clicks: 0,
         };
       });
-      return json({ status: 200, body: { campaigns, maxBudget: centsOf(balance) } });
+      const cap = limitsFor(req).maxBudgetCents;
+      const maxBudget = cap === undefined ? centsOf(balance) : Math.min(centsOf(balance), cap);
+      return json({ status: 200, body: { campaigns, maxBudget } });
     },
 
     async POST(req: Request): Promise<Response> {
@@ -294,6 +321,15 @@ export function createCampaignHandlers(deps: Deps) {
       const checked = validateLaunch(body);
       if ("error" in checked) return json({ status: 400, body: { error: checked.error, field: checked.field } });
       const input = checked.value;
+
+      const limits = limitsFor(req);
+      if (limits.maxBudgetCents !== undefined && input.budgetCents > limits.maxBudgetCents) {
+        const error = budgetCapMessage(limits.maxBudgetCents);
+        return json({ status: 400, body: { error, field: "budgetCents", code: "limit" } });
+      }
+      if (limits.perUser !== undefined && deps.listByOwner(advertiser.userId).length >= limits.perUser) {
+        return json({ status: 403, body: { error: launchLimitMessage(limits.perUser), code: "limit" } });
+      }
 
       // A repeat of the same request while it is in flight gets the same outcome; a different one waits its turn.
       const key = JSON.stringify({ ...input, email: undefined });

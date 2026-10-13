@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { setHoldViews, useHoldViews } from "../lib/debug-flags";
+import { demoKeyHeaders, forgetDemoKey, saveDemoKey, storedDemoKey, takeDebugParam } from "../lib/demo-key-client";
 import type { EventRecord } from "../lib/store";
 
 const EXPLORER_TX = "https://testnet.monadvision.com/tx/";
@@ -22,35 +23,74 @@ function TxLink({ hash }: { hash?: string | null }) {
 }
 
 async function postJson(url: string): Promise<{ status: number; body: Record<string, unknown> }> {
-  const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...demoKeyHeaders() },
+    body: "{}",
+  });
   return { status: res.status, body: await res.json().catch(() => ({})) };
 }
 
-/** Demo controls, shown with ?debug=1 or Ctrl+Shift+D. */
-export default function DebugBar() {
+/** True when the server accepts this tab's demo key; a rejected key is forgotten. */
+async function checkDemoKey(): Promise<boolean> {
+  if (!storedDemoKey()) return false;
+  try {
+    const res = await fetch("/api/aria/demo-key", { cache: "no-store", headers: demoKeyHeaders() });
+    if (res.status === 403) forgetDemoKey();
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Demo controls, shown with ?debug=1 or Ctrl+Shift+D. When `locked` (ARIA_DEMO_KEY set on the server),
+ * only ?debug=<key> opens it: the key moves from the URL to sessionStorage and the server checks it.
+ */
+export default function DebugBar({ locked = false }: { locked?: boolean }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [results, setResults] = useState<ActionResult[]>([]);
   const [events, setEvents] = useState<EventRecord[]>([]);
+  const unlocked = useRef(!locked);
   const hold = useHoldViews();
 
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("debug") === "1") setOpen(true);
+    let alive = true;
+    unlocked.current = !locked;
+    if (!locked) {
+      if (new URLSearchParams(window.location.search).get("debug") === "1") setOpen(true);
+    } else {
+      const { value, cleaned } = takeDebugParam(window.location.href);
+      if (value !== null) {
+        saveDemoKey(value);
+        window.history.replaceState(window.history.state, "", cleaned);
+      }
+      void checkDemoKey().then((ok) => {
+        if (!alive) return;
+        unlocked.current = ok;
+        if (ok && value !== null) setOpen(true);
+      });
+    }
     const onKey = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "d") {
+        if (!unlocked.current) return;
         e.preventDefault();
         setOpen((o) => !o);
       }
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+    return () => {
+      alive = false;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [locked]);
 
   useEffect(() => {
     if (!open) return;
     let alive = true;
     const load = () =>
-      fetch("/api/aria/events", { cache: "no-store" })
+      fetch("/api/aria/events", { cache: "no-store", headers: demoKeyHeaders() })
         .then((res) => res.json())
         .then((data: { events: EventRecord[] }) => alive && setEvents(data.events))
         .catch(() => undefined);

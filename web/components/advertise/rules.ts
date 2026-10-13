@@ -34,7 +34,13 @@ export const BUDGET_PRESETS = [200, 500, 1000] as const;
 
 export const DRAFT_FAILED = "We couldn't draft claims right now. Write 3 to 5 short facts about your product.";
 export const LAUNCH_FAILED = "We couldn't launch right now. Nothing was charged. Try again in a minute.";
-export const SITE_UNREADABLE = "We couldn't read that page. Describe what you sell below.";
+
+/** The server's launch error (always user-facing copy), else the generic failure. */
+export function launchErrorCopy(error: string): string {
+  return error || LAUNCH_FAILED;
+}
+
+export const SITE_UNREADABLE ="We couldn't read that page. Describe what you sell below.";
 export const SITE_DRAFT_FAILED = "We couldn't draft from your website right now. Describe what you sell below.";
 export const SITE_DRAFTED = "Drafted by KIMI from your website — edit anything";
 
