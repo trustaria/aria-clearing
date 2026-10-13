@@ -35,7 +35,7 @@ cre/
 | `schedule` | cron with seconds; simulation fires once on demand |
 | `chainSelectorName` | `monad-testnet` (selector `2183018362218727504`) |
 | `clearingAddress` | AriaClearing address from `deployments/10143.json` |
-| `evidenceUrl` | `http://localhost:3000/api/aria/evidence`; a `cloudflared` URL if localhost is unreachable |
+| `evidenceUrl` | the live site's `https://web-production-95cf9.up.railway.app/api/aria/evidence`; `http://localhost:3000/api/aria/evidence` against a local web app |
 | `gasLimit` | `"1500000"` (string): payouts add USDC transfers; Monad bills the full limit (~0.15 MON per run) |
 | `maxIdsPerReport` | `15` |
 
@@ -90,19 +90,30 @@ testnet; the production forwarder verifies DON signatures.
 
 ## A real run on Monad testnet
 
-`simulate --broadcast` against the live contract `0x431e97E2EB23ac06C9f807cC8DCe54499C1bDC7B`, settling a viewed
-impression and a click from Nova, and rejecting a forged impression (never on screen):
+`simulate --broadcast` against the live contract `0x431e97E2EB23ac06C9f807cC8DCe54499C1bDC7B` and the live site's
+evidence endpoint, on three events created on the live site: a Nova card viewed
+([logEvent](https://testnet.monadvision.com/tx/0x1f7bb1af1254702c6befca205d3037192e216749384d880c347fd7e0d09e2519))
+and clicked ([logEvent](https://testnet.monadvision.com/tx/0xe9aaf334bba9463ecdd17a113f11c62f76e1afa973f4f1be8807c80c9ac2ec4c)),
+and a forged impression for a card that was never on screen
+([logEvent](https://testnet.monadvision.com/tx/0x64301476d3bf1f560ac0f4d6c3088adfc36137e0344bb7a7addd09581dd0f72c)):
 
 ```
-[USER LOG] aria-settle: 3 pending, 3 past the 20s window (now=1791909396, cap=15)
+[USER LOG] aria-settle: 3 pending, 3 past the 20s window (now=1791925189, cap=15)
 [USER LOG] aria-settle: release 2, reject 1
-[USER LOG] aria-settle:   release 0x6190f53d5c344b86281e7103d61078c3e4f8fc871caebdf3af6c9685e6564b02
-[USER LOG] aria-settle:   release 0x1b8f080cbaad7f8c21d390921d60fe944b0f55261e840385de51d3ad83bac40b
-[USER LOG] aria-settle:   reject  0xffe4fbe0b0f70e82b18d90482791ebc3e54bfeb3524e0e7c5b5ea64be275a387
-[USER LOG] aria-settle: writeReport txStatus=SUCCESS receiver=0 tx=0x24b97108e45d388ec6ea1f8fb663f46e30c39066bfa0c1ea83aece0beb967832
+[USER LOG] aria-settle:   release 0x737d128f469372dd695f2691ebc4547db99b9d8934d9368435283604d3c31758
+[USER LOG] aria-settle:   release 0xaa74416dbbdea0085800f5a8bc206d66d058828091980aa67e2748ca5010c285
+[USER LOG] aria-settle:   reject  0x145698cd118124021c1a32fc71164484d67b8866e37de97700e511d51743b75f
+[USER LOG] aria-settle: writeReport txStatus=SUCCESS receiver=0 tx=0x1f0988846ef20eb86959cab6abb6c178f93b9b8caad56f3af855f8dd9118d84a
 ```
 
 The settlement tx emits `EventSettled` for all three and `PaidOut` for the two released events, each with the
-app's amount and Aria's 20 % fee ($0.008 + $0.002 and $0.20 + $0.05):
-[0x24b9…7832](https://testnet.monadvision.com/tx/0x24b97108e45d388ec6ea1f8fb663f46e30c39066bfa0c1ea83aece0beb967832).
-Check it yourself: `pnpm --filter @aria-clearing/receipt verify req_36wX7fR79VnTOVHwllgYhA`.
+app's amount and Aria's 20 % fee ($0.008 + $0.002 and $0.20 + $0.05); the forged impression's price returns to the
+campaign budget:
+[0x1f09…d84a](https://testnet.monadvision.com/tx/0x1f0988846ef20eb86959cab6abb6c178f93b9b8caad56f3af855f8dd9118d84a).
+Receipts: [verified](https://web-production-95cf9.up.railway.app/receipt/req_gQfX4agOzJkHRZQwQiA32Z) and
+[rejected](https://web-production-95cf9.up.railway.app/receipt/req_2DCUb2B7NwcNO6PvpM7kUS). Check it yourself:
+
+```sh
+pnpm --filter @aria-clearing/receipt verify req_gQfX4agOzJkHRZQwQiA32Z \
+  --sentence "For a Lisbon family trip, packages cover 3 to 10 nights and children under 6 stay free in partner hotels."
+```
