@@ -51,6 +51,7 @@ export interface CampaignView {
 }
 
 const STATUS: Record<CampaignStatus, { label: string; tone: Tone }> = {
+  pending: { label: "Launching", tone: "pending" },
   live: { label: "Live", tone: "good" },
   ending: { label: "Ending", tone: "warn" },
   ended: { label: "Ended", tone: "idle" },

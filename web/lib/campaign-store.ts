@@ -4,8 +4,11 @@ import type { Hex } from "viem";
 import type { Campaign } from "./campaigns";
 import { dataFile } from "./data-dir";
 
-/** live: pickable. ending: withdraw sent, no longer pickable. ended: withdrawn. */
-export type CampaignStatus = "live" | "ending" | "ended";
+/** pending: prepared, createCampaign not confirmed yet. live: pickable. ending: withdraw sent, no longer pickable. ended: withdrawn. */
+export type CampaignStatus = "pending" | "live" | "ending" | "ended";
+
+/** wallet: the advertiser's embedded wallet funded the escrow. treasury: Aria's treasury server wallet did. */
+export type CampaignFunding = "wallet" | "treasury";
 
 /** A campaign launched from the advertiser console. Amounts are USDC with 6 decimals. */
 export type StoredCampaign = Campaign & {
@@ -19,7 +22,7 @@ export type StoredCampaign = Campaign & {
   ownerId: string;
   /** Display only. */
   ownerEmail: string;
-  /** The createCampaign transaction. */
+  /** The createCampaign transaction; "0x" while pending. */
   txHash: Hex;
   createdBlock: number;
   /** Unix ms. */
@@ -29,7 +32,18 @@ export type StoredCampaign = Campaign & {
   refunded?: number;
   /** The withdraw transaction. */
   endTxHash?: Hex;
+  /** Absent means treasury. */
+  funding?: CampaignFunding;
+  /** The advertiser's embedded wallet, for wallet-funded campaigns. */
+  advertiserAddress?: Hex;
+  /** Dispute transactions sent by the advertiser's wallet, by event id. */
+  disputes?: Record<string, Hex>;
 };
+
+/** How the campaign was funded; records without the field are treasury-funded. */
+export function fundingOf(record: Pick<StoredCampaign, "funding">): CampaignFunding {
+  return record.funding ?? "treasury";
+}
 
 type Snapshot = { campaigns: Record<string, StoredCampaign> };
 

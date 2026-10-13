@@ -1,10 +1,11 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { campaignIdOf } from "@aria-clearing/receipt";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   createCampaignStore,
+  fundingOf,
   getStoredCampaign,
   listCampaignsByOwner,
   listStoredCampaigns,
@@ -85,6 +86,23 @@ describe("campaign store", () => {
     saveCampaign(crema({ slug: "someone-else", ownerId: "did:privy:bob", createdAt: 3 }));
     expect(listCampaignsByOwner("did:privy:ana").map((c) => c.slug)).toEqual(["crema-new", "crema-old"]);
   });
+
+  it("reads records saved before funding existed as treasury-funded", () => {
+    const file = join(dir, "old", "campaigns.json");
+    mkdirSync(join(dir, "old"), { recursive: true });
+    writeFileSync(file, JSON.stringify({ campaigns: { "crema-works-a1b2": crema() } }));
+    const record = createCampaignStore(file).getStoredCampaign("crema-works-a1b2");
+    expect(record && fundingOf(record)).toBe("treasury");
+    expect(record?.advertiserAddress).toBeUndefined();
+  });
+
+  it("keeps the funding and the advertiser wallet of a wallet-funded record", () => {
+    const wallet = "0x9F1C2A8b7E6d5C4b3A2918070605040302010abc" as const;
+    saveCampaign(crema({ funding: "wallet", advertiserAddress: wallet }));
+    const record = getStoredCampaign("crema-works-a1b2");
+    expect(record && fundingOf(record)).toBe("wallet");
+    expect(record?.advertiserAddress).toBe(wallet);
+  });
 });
 
 describe("merged campaign list", () => {
@@ -111,6 +129,12 @@ describe("merged campaign list", () => {
     expect(campaignBySlug("crema-ended")?.url).toBe("https://crema.works");
     expect(campaignBySlug("crema-ending")?.url).toBe("https://crema.works");
     expect(validatePick(stubPick("What espresso machine should I buy?", allCampaigns()), allCampaigns())).toBeNull();
+  });
+
+  it("never picks a pending campaign but keeps its slug taken", () => {
+    saveCampaign(crema({ slug: "crema-pending", status: "pending", txHash: "0x", createdBlock: 0 }));
+    expect(allCampaigns().map((c) => c.slug)).not.toContain("crema-pending");
+    expect(campaignBySlug("crema-pending")).toBeDefined();
   });
 
   it("resolves only from the given list when one is passed", () => {
