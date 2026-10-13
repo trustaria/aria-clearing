@@ -2,25 +2,20 @@ import { writeFileSync } from "node:fs";
 import { RateLimitError } from "openai";
 import { it } from "vitest";
 import { campaigns } from "../lib/campaigns";
-import { kimiModel, requestPick, streamAnswer, type PickReply } from "../lib/kimi";
-import { MAX_RATIONALE, PICK_DEADLINE_MS, validatePick } from "../lib/pick";
-import { CASES, type EvalCase } from "./eval-kimi-cases";
+import { MAX_RATIONALE } from "../lib/pick";
+import { GEMINI_TIMEOUT_MS, geminiModel, geminiPicker } from "../lib/serve/gemini";
+import { selectAd } from "../lib/serve/select";
+import { CASES, type EvalCase } from "./eval-select-cases";
 
-// Runs each case against the live KIMI API and prints pick accuracy, latency, rationale and token stats.
-// EVAL_RUNS (default 3), EVAL_ONLY (comma-separated id prefixes), EVAL_INTERVAL_MS (default 21000,
-// spacing between call starts to stay under the account's requests-per-minute limit),
-// EVAL_ANSWERS=1 (also time the streamed answers for the chips), EVAL_OUT (JSON results path).
+// Runs each case through the serve API's Gemini selector against the live API and prints pick accuracy,
+// latency and sentence stats. EVAL_RUNS (default 3), EVAL_ONLY (comma-separated id prefixes),
+// EVAL_INTERVAL_MS (default 1000, spacing between call starts), EVAL_OUT (JSON results path).
 
 const RUNS = Number(process.env.EVAL_RUNS ?? 3);
-const INTERVAL_MS = Number(process.env.EVAL_INTERVAL_MS ?? 21000);
+const INTERVAL_MS = Number(process.env.EVAL_INTERVAL_MS ?? 1000);
 const ONLY = (process.env.EVAL_ONLY ?? "").split(",").filter(Boolean);
 const CALL_TIMEOUT_MS = 20000;
 const RATE_LIMIT_RETRIES = 4;
-
-// USD per 1M tokens for kimi-k2.6 (platform.kimi.ai pricing page).
-const PRICE_INPUT = 0.95;
-const PRICE_INPUT_CACHED = 0.16;
-const PRICE_OUTPUT = 4;
 
 const INLINE_REF = /\(\s*\d+(\s*,\s*\d+)*\s*\)|\[\s*\d+\s*\]/;
 
@@ -33,13 +28,11 @@ type Row = {
   error?: string;
   rawSlug: string | null;
   slug: string | null;
-  rationale: string;
+  decision: string;
+  sentence: string;
   claimRefs: unknown;
   refsInvalid: boolean;
   inlineRef: boolean;
-  promptTokens: number;
-  cachedTokens: number;
-  completionTokens: number;
 };
 
 let lastStart = 0;
@@ -60,19 +53,16 @@ function percentile(values: number[], p: number): number {
 
 const pct = (n: number, d: number) => (d === 0 ? "n/a" : `${((100 * n) / d).toFixed(0)} % (${n}/${d})`);
 
-function cachedOf(usage: PickReply["usage"]): number {
-  const u = usage as (PickReply["usage"] & { cached_tokens?: number }) | undefined;
-  return u?.prompt_tokens_details?.cached_tokens ?? u?.cached_tokens ?? 0;
-}
-
-/** A paced pick call; a 429 waits for the next slot and retries, so latency covers one clean request. */
+/** A paced Gemini call; a 429 waits for the next slot and retries, so latency covers one clean request. */
 async function pacedPick(question: string) {
+  const picker = geminiPicker({ timeoutMs: CALL_TIMEOUT_MS });
+  if (!picker) throw new Error("GEMINI_API_KEY is not set");
   for (let attempt = 0; ; attempt++) {
     try {
       return await paced(async () => {
         const start = Date.now();
-        const reply = await requestPick(question, campaigns, AbortSignal.timeout(CALL_TIMEOUT_MS), 0);
-        return { ...reply, ms: Date.now() - start };
+        const raw = await picker({ prompt: question, campaigns });
+        return { raw, ms: Date.now() - start };
       });
     } catch (error) {
       if (!(error instanceof RateLimitError) || attempt >= RATE_LIMIT_RETRIES) throw error;
@@ -85,7 +75,7 @@ async function runPick(c: EvalCase, run: number): Promise<Row> {
   const start = Date.now();
   const base = { id: c.id, kind: c.kind, expect: c.expect, run };
   try {
-    const { raw, usage, ms } = await pacedPick(c.question);
+    const { raw, ms } = await pacedPick(c.question);
     const r = (raw ?? {}) as Record<string, unknown>;
     const rawSlug = typeof r.slug === "string" ? r.slug : null;
     const campaign = campaigns.find((x) => x.slug === rawSlug);
@@ -95,19 +85,18 @@ async function runPick(c: EvalCase, run: number): Promise<Row> {
       (!Array.isArray(refs) ||
         refs.length === 0 ||
         refs.some((n) => !Number.isInteger(n) || n < 1 || n > campaign.claims.length));
-    const rationale = typeof r.rationale === "string" ? r.rationale : "";
+    const sentence = typeof r.sentence === "string" ? r.sentence : "";
+    const selection = await selectAd({ prompt: c.question, campaigns }, async () => raw);
     return {
       ...base,
       ms,
       rawSlug,
-      slug: validatePick(raw, campaigns)?.slug ?? null,
-      rationale,
+      slug: selection.decision === "served" ? selection.pick.slug : null,
+      decision: selection.decision === "served" ? "served" : selection.reason,
+      sentence,
       claimRefs: refs,
       refsInvalid,
-      inlineRef: INLINE_REF.test(rationale),
-      promptTokens: usage?.prompt_tokens ?? 0,
-      cachedTokens: cachedOf(usage),
-      completionTokens: usage?.completion_tokens ?? 0,
+      inlineRef: INLINE_REF.test(sentence),
     };
   } catch (error) {
     return {
@@ -116,13 +105,11 @@ async function runPick(c: EvalCase, run: number): Promise<Row> {
       error: (error as Error).message,
       rawSlug: null,
       slug: null,
-      rationale: "",
+      decision: "error",
+      sentence: "",
       claimRefs: [],
       refsInvalid: false,
       inlineRef: false,
-      promptTokens: 0,
-      cachedTokens: 0,
-      completionTokens: 0,
     };
   }
 }
@@ -136,14 +123,10 @@ function report(rows: Row[]) {
   const nulls = ok.filter((r) => !r.slug);
   const rightNulls = nulls.filter((r) => r.expect.length === 0).length;
   const picks = ok.filter((r) => r.rawSlug);
-  const lengths = picks.map((r) => r.rationale.length);
+  const lengths = picks.map((r) => r.sentence.length);
   const latency = ok.map((r) => r.ms);
-  const prompt = ok.reduce((s, r) => s + r.promptTokens, 0);
-  const cached = ok.reduce((s, r) => s + r.cachedTokens, 0);
-  const completion = ok.reduce((s, r) => s + r.completionTokens, 0);
-  const cost = ((prompt - cached) * PRICE_INPUT + cached * PRICE_INPUT_CACHED + completion * PRICE_OUTPUT) / 1e6;
 
-  console.log("\nPer case (picked slug per run, - = no card, ! = error):");
+  console.log("\nPer case (served slug per run, - = no ad, ! = error):");
   for (const id of [...new Set(rows.map((r) => r.id))]) {
     const runs = rows.filter((r) => r.id === id);
     const marks = runs.map((r) => (r.error ? "!" : (r.slug ?? "-"))).join(" | ");
@@ -151,54 +134,25 @@ function report(rows: Row[]) {
     console.log(`${good ? " " : "x"} ${id.padEnd(26)} ${marks}`);
   }
 
-  console.log("\nRationales:");
-  for (const r of picks) console.log(`  [${r.rationale.length}] ${r.rawSlug} ${JSON.stringify(r.claimRefs)}: ${r.rationale}`);
+  console.log("\nSentences:");
+  for (const r of picks) console.log(`  [${r.sentence.length}] ${r.rawSlug} ${JSON.stringify(r.claimRefs)}: ${r.sentence}`);
 
-  console.log(
-    `\nKIMI model ${kimiModel()}, ${rows.length} calls, ${rows.length - ok.length} errors, ${rateLimited} rate-limited retries`,
-  );
+  console.log(`\nGemini model ${geminiModel()}, ${rows.length} calls, ${rows.length - ok.length} errors, ${rateLimited} rate-limited retries`);
   for (const r of rows.filter((x) => x.error)) console.log(`  error ${r.id}#${r.run}: ${r.error}`);
   console.log(`Commercial picks correct  ${pct(correct, commercial.length)}`);
-  console.log(`Non-commercial picked     ${pct(falsePicks, nonCommercial.length)}`);
-  console.log(`Null precision            ${pct(rightNulls, nulls.length)}`);
+  console.log(`Non-commercial served     ${pct(falsePicks, nonCommercial.length)}`);
+  console.log(`No-fill precision         ${pct(rightNulls, nulls.length)}`);
   console.log(`Latency p50 / p95 / max   ${percentile(latency, 50)} / ${percentile(latency, 95)} / ${Math.max(...latency)} ms`);
-  console.log(`Within ${PICK_DEADLINE_MS} ms deadline   ${pct(latency.filter((ms) => ms <= PICK_DEADLINE_MS).length, latency.length)}`);
+  console.log(`Within ${GEMINI_TIMEOUT_MS} ms timeout   ${pct(latency.filter((ms) => ms <= GEMINI_TIMEOUT_MS).length, latency.length)}`);
   console.log(
-    `Rationale length          avg ${(lengths.reduce((s, n) => s + n, 0) / (lengths.length || 1)).toFixed(0)}, ` +
+    `Sentence length           avg ${(lengths.reduce((s, n) => s + n, 0) / (lengths.length || 1)).toFixed(0)}, ` +
       `max ${Math.max(0, ...lengths)}, over ${MAX_RATIONALE}: ${lengths.filter((n) => n > MAX_RATIONALE).length}`,
   );
   console.log(`Invalid claimRefs         ${picks.filter((r) => r.refsInvalid).length} of ${picks.length} picks`);
   console.log(`Inline "(n)" markers      ${picks.filter((r) => r.inlineRef).length} of ${picks.length} picks`);
-  console.log(
-    `Tokens per pick           ${(prompt / (ok.length || 1)).toFixed(0)} in (${cached} cached total), ` +
-      `${(completion / (ok.length || 1)).toFixed(0)} out`,
-  );
-  console.log(`Cost                      $${cost.toFixed(4)} total, $${(cost / (ok.length || 1)).toFixed(5)} per pick`);
 }
 
-async function timeAnswers(cases: EvalCase[]) {
-  console.log("\nAnswers (first text / full answer, words):");
-  for (const c of cases.filter((x) => x.kind === "chip")) {
-    await paced(async () => {
-      const start = Date.now();
-      let first = 0;
-      let text = "";
-      try {
-        const messages = [{ role: "user" as const, content: c.question }];
-        for await (const delta of streamAnswer("kimi", messages, AbortSignal.timeout(CALL_TIMEOUT_MS))) {
-          if (!first) first = Date.now() - start;
-          text += delta;
-        }
-        const words = text.split(/\s+/).filter(Boolean).length;
-        console.log(`  ${c.id.padEnd(14)} ${first} ms / ${Date.now() - start} ms, ${words} words`);
-      } catch (error) {
-        console.log(`  ${c.id.padEnd(14)} error: ${(error as Error).message}`);
-      }
-    });
-  }
-}
-
-it("KIMI pick eval", async () => {
+it("serve selector eval", async () => {
   const cases = CASES.filter((c) => ONLY.length === 0 || ONLY.some((prefix) => c.id.startsWith(prefix)));
   console.log(`${cases.length} cases x ${RUNS} runs, ${INTERVAL_MS} ms between calls`);
   const rows: Row[] = [];
@@ -206,11 +160,10 @@ it("KIMI pick eval", async () => {
     for (const c of cases) {
       const row = await runPick(c, run);
       rows.push(row);
-      const mark = row.error ? `error ${row.error}` : (row.slug ?? "-");
+      const mark = row.error ? `error ${row.error}` : (row.slug ?? `- ${row.decision}`);
       console.log(`  ${run} ${c.id.padEnd(26)} ${String(row.ms).padStart(5)} ms  ${mark}`);
     }
   }
   report(rows);
   if (process.env.EVAL_OUT) writeFileSync(process.env.EVAL_OUT, JSON.stringify(rows, null, 2));
-  if (process.env.EVAL_ANSWERS === "1") await timeAnswers(cases);
 });

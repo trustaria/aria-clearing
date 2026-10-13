@@ -14,6 +14,24 @@
   }
 }
 
+/* Nova's sponsored card: AriaAdCard's theme variables, neutral like the chat. */
+.nova-ad {
+  --aria-fg: #404040;
+  --aria-accent: #171717;
+  --aria-border: #e5e5e5;
+  --aria-border-left: #d4d4d4;
+  --aria-font: inherit;
+}
+
+@media (prefers-color-scheme: dark) {
+  .nova-ad {
+    --aria-fg: #d4d4d4;
+    --aria-accent: #a3a3a3;
+    --aria-border: #404040;
+    --aria-border-left: #525252;
+  }
+}
+
 body {
   color: var(--foreground);
   background: var(--background);

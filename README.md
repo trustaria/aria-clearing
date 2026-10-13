@@ -30,7 +30,7 @@ A receipt binds three things together:
 3. **The money.** The price is reserved from the advertiser's escrow when the event is logged and paid to the
    app when the event is verified.
 
-The card also embeds the receipt in the page, so any extension, crawler or other app can find it:
+Nova also embeds the receipt in the page, beside the card, so any extension, crawler or other app can find it:
 
 ```html
 <script type="application/json" data-aria-receipt>
@@ -139,6 +139,7 @@ Rules: `ops/src/policy.ts`. Probes: `pnpm --filter @aria-clearing/ops privy:prob
 | The relayer cannot pay anyone (contract roles + Privy policy) | Decentralised execution: the workflow runs in CRE simulation, and the Monad testnet mock forwarder is permissionless |
 | The sentence you pass (`--sentence`, `--receipt`, or the card's `?h=` link) equals the one logged for that request | Without that input, only that the logged record is internally consistent: the contract hashes what it logs |
 | | That the sentence is a faithful reading of the claims: an LLM wrote it, citing claim numbers |
+| | That the ad choice is production-grade: the serve API's selector is a single Gemini call (keywords as fallback), not Aria's production classifier and auction |
 | The dispute window passed without a dispute | That viewability was measured honestly: the app's page measures it and reports it; the workflow checks the rule, not the measurement |
 | | Settlement routing: the owner can change the forwarder, and with the permissionless mock forwarder anyone could post a far-future `reportedAt` and stall later reports |
 | | Fair disputes: in the demo a dispute is a free advertiser veto and is always refunded; production needs a bond or an arbiter, and automated disputes by the advertiser's fraud tooling |
@@ -177,7 +178,7 @@ this wallet from a card payment, and the top-up step disappears for the brand.
 test network. No card is charged." Aria's treasury server wallet is the onchain advertiser and acts for the brand
 (custodial, test mode); launching is one `createCampaign` transaction that moves the budget into escrow.
 
-Either way, a new campaign joins the list the AI picks from as soon as it is live.
+Either way, a new campaign joins the list Aria's serve API picks from as soon as it is live.
 
 ## How it uses Monad
 
@@ -195,8 +196,10 @@ Either way, a new campaign joins the list the AI picks from as soon as it is liv
 ```mermaid
 graph LR
     subgraph web [web/ — Next.js]
-        Nova[Nova chat + sponsored card<br/>receipt JSON in the page] -->|/api/chat| Kimi[KIMI: answer + campaign pick]
-        Nova -->|/api/aria/events, /click| Ev[event store + evidence]
+        Nova[Nova chat + sponsored card<br/>receipt JSON in the page] -->|/api/chat| Kimi[KIMI: answer]
+        Nova -->|"@trustaria/core serve()"| Serve[/api/v1/serve: Gemini pick/]
+        Serve -->|served record| Ev
+        Nova -->|"AriaAdCard: /api/v1/beacon, /click"| Ev[event store + evidence]
         Ev --> Relay[Privy server wallet<br/>policy: logEvent only]
         EvAPI[/api/aria/evidence/] --> Ev
         Dash[/dashboard: publisher earnings/]
@@ -224,7 +227,7 @@ graph LR
 | `cre/` | the `aria-settle` Chainlink CRE workflow (TypeScript SDK) with its tests |
 | `indexer/` | Envio HyperIndex: campaigns, event lifecycle with each sponsored sentence, and a per-publisher trust score; serves the dashboard's totals, activity feed and trust score, and the campaign page's counts and sentences |
 | `ops/` | Privy server wallets (relayer, advertiser treasury), their policies, probes and `sendFromWallet()` |
-| `web/` | Nova (the reference AI app), Aria's API routes, the receipt page, the publisher dashboard and the advertiser console |
+| `web/` | Nova (the reference AI app, a publisher using `@trustaria/core` and `@trustaria/react`), Aria's API routes including the serve API and the impression beacon, the receipt page, the publisher dashboard and the advertiser console |
 | `deployments/` | `10143.json`: the live contract address and deploy block |
 
 ## Technology
@@ -232,7 +235,8 @@ graph LR
 Monad testnet · Solidity 0.8.28 + Foundry · OpenZeppelin · Chainlink CRE (TypeScript SDK, `cre` CLI) · Privy
 (server wallets, policies, email login with embedded wallets) · Envio HyperIndex (dashboard totals, activity feed,
 trust score; campaign page counts and sentences) · KIMI (`kimi-k2.6`, Moonshot
-AI) · Next.js 14 + React 18 · viem · USDC.
+AI) · Gemini (Flash, through its OpenAI-compatible API) · `@trustaria/core` and `@trustaria/react` (Aria's publisher SDK) · Next.js 14 +
+React 18 · viem · USDC.
 
 ## Run it
 
@@ -248,14 +252,37 @@ pnpm dev                        # http://localhost:3000 — Nova; /dashboard; /a
 
 **With no secrets at all** you can still: run every test suite; `verify` any receipt from the public RPC; and
 `pnpm dev` to open receipt pages and Nova on its clearly labelled stub model (the stub runs in dev only, never
-under `next start`). Logging events and the dashboards need a Privy app (`NEXT_PUBLIC_PRIVY_APP_ID`,
-`PRIVY_APP_SECRET`, an authorization key); real answers need `KIMI_API_KEY`; settlement needs `cre login` and a
-funded key; the indexer needs Docker and `ENVIO_API_TOKEN`.
+under `next start`), with cards picked by keyword under a built-in dev key. Logging events and the dashboards need a
+Privy app (`NEXT_PUBLIC_PRIVY_APP_ID`, `PRIVY_APP_SECRET`, an authorization key); real answers need
+`KIMI_API_KEY`; cards under `next start` need `ARIA_API_KEY` and `ARIA_TOKEN_SECRET`; Gemini picks need
+`GEMINI_API_KEY`; settlement needs `cre login` and a funded key; the indexer needs Docker and `ENVIO_API_TOKEN`.
 
-**KIMI.** Nova runs `kimi-k2.6` with thinking disabled, so replies start in about a second. Each chat turn is one
-streamed call: the answer, then a hidden final line with the campaign pick. A built-in limiter queues every KIMI
-call to fit low rate-limit accounts (defaults: 3 requests per minute, 1 at a time; raise `KIMI_RPM` and
-`KIMI_CONCURRENCY` on a higher tier).
+**How Nova gets its ad.** Nova is a publisher: its chat route calls Aria's serve API through Aria's publisher SDK,
+`@trustaria/core` (`createAria(...).serve({ prompt, context, sessionId })`), at the same time as it starts its own
+answer. The serve API (`POST /api/v1/serve`, Bearer `ARIA_API_KEY`) picks at most one live campaign independently
+of the answer, records the served sentence for the clearing, and answers with the ad (or a typed no-fill); Nova
+re-validates it against the campaign's claims and shows the card after the answer. A no-fill, a timeout (Nova's
+budget is `ARIA_SERVE_TIMEOUT_MS`, default 6 s) or an error only means no card. By default Nova calls its own
+server (`ARIA_BASE_URL` points it elsewhere); set `ARIA_PUBLIC_URL` to the public origin so the ad's click, why and
+beacon URLs are absolute public links (the card follows them as served, so a deployed server needs it).
+
+**The card.** Nova renders the served ad with `@trustaria/react`'s `AriaAdCard` (blockquote style, the whole card
+clickable) and puts the receipt JSON beside it. The impression is measured in the browser: at least 50 % of the
+card visible for one continuous second, with the tab and the "Sponsored" disclosure visible. The card then
+beacons it straight to Aria's `POST /api/v1/beacon` with the ad's signed, single-use impression token (an HMAC
+under `ARIA_TOKEN_SECRET`); Aria checks the token against the served record and logs the impression onchain with
+the measured dwell and visible ratio as its evidence. A billable click is the card's link through Aria's redirect,
+`/api/aria/click/<requestId>`; the card also posts each click to Nova's `/api/aria/card-events`, which forwards it
+to Aria's `POST /api/v1/events` as a signal that is not billed.
+
+**Gemini.** The serve API picks with one Gemini call (`GEMINI_MODEL`, default `gemini-3.6-flash`, minimal
+thinking, JSON output, 4 s timeout): the campaign, 1–2 claim numbers and one sentence built from them. Without
+`GEMINI_API_KEY`, or when the call fails or times out, it picks by campaign keywords instead. `pnpm --filter
+@aria-clearing/web eval:select` runs the selector against a fixed question set.
+
+**KIMI.** Nova's answers run on `kimi-k2.6` with thinking disabled, so replies start in about a second; KIMI also
+drafts claims in the advertiser console. A built-in limiter queues every KIMI call to fit low rate-limit accounts
+(defaults: 3 requests per minute, 1 at a time; raise `KIMI_RPM` and `KIMI_CONCURRENCY` on a higher tier).
 
 **Single-tenant demo server.** The web app holds the relayer's and the seed advertiser's credentials and exposes
 demo controls (forge, dispute, publisher registration) without access control. Run it on your own machine; do not
@@ -298,14 +325,21 @@ Tests: `pnpm test` (receipt, indexer, ops, web; the indexer needs Node ≥ 22.15
 `/?debug=1` (or Ctrl+Shift+D) opens a debug bar: **Forge impression** (an impression posted for a card that was
 never seen, as a dishonest publisher backend could), **Dispute** (the advertiser disputes an event) and
 **Relayer tries to pay** (shows the Privy policy denial). Tick **Hold views** before forging, otherwise the
-card is viewed as soon as it appears.
+card is viewed as soon as it appears; a held card sends its beacon to a sink that records nothing.
 
-## Credits
+## Existing code
 
 - Starting point: the official Monad template
   [`next-serwist-privy-embedded-wallet`](https://github.com/monad-developers/next-serwist-privy-embedded-wallet)
-  (Next.js + Privy embedded wallet on Monad testnet). Everything else in this repository was written during the
-  hackathon.
+  (Next.js + Privy embedded wallet on Monad testnet).
+- `@trustaria/core`: Aria's publisher SDK, MIT, © 2026 Evermore Labs Co. Used as a dependency
+  ([`@trustaria/core` on npm](https://www.npmjs.com/package/@trustaria/core)), not modified here.
+- `@trustaria/react`: Aria's React card for publishers (`AriaAdCard`, the events handler), MIT, © 2026 Evermore
+  Labs Co. Used as a dependency ([`@trustaria/react` on npm](https://www.npmjs.com/package/@trustaria/react)), not modified here.
+
+Everything else in this repository was written for this hackathon.
+
+## Credits
 - Libraries: OpenZeppelin Contracts, forge-std, viem, `@chainlink/cre-sdk`, `@privy-io/react-auth`,
   `@privy-io/node`, Envio, Next.js. The advertisers in the demo are fictional.
 - This project was built with the help of AI coding tools (Claude Code), as allowed by the hackathon rules: parallel

@@ -1,4 +1,3 @@
-import { formatClaims } from "@aria-clearing/receipt";
 import campaignsJson from "../../contracts/script/campaigns.json";
 import { listStoredCampaigns } from "./campaign-store";
 
@@ -34,16 +33,4 @@ export function knownCampaigns(): Campaign[] {
 /** Finds a campaign by slug in `list`, by default in every known campaign. */
 export function campaignBySlug(slug: string, list?: Campaign[]): Campaign | undefined {
   return (list ?? knownCampaigns()).find((campaign) => campaign.slug === slug);
-}
-
-/** Campaigns as the prompt shows them: slug, advertiser, category, keywords, then the numbered claims. */
-export function describeCampaigns(list: Campaign[]): string {
-  return list
-    .map((c) => {
-      const lines = [`slug: ${c.slug}`, `advertiser: ${c.advertiser}`, `category: ${c.category}`];
-      if (c.keywords?.length) lines.push(`keywords: ${c.keywords.join(", ")}`);
-      lines.push(`claims:\n${formatClaims(c.claims)}`);
-      return lines.join("\n");
-    })
-    .join("\n\n");
 }

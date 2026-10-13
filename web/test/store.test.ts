@@ -57,6 +57,23 @@ describe("event store", () => {
     expect(retry.record.error).toBeUndefined();
   });
 
+  it("keeps the first claim's evidence and origin when a failed event is claimed again", () => {
+    const store = createEventStore(file);
+    store.claimEvent(impression());
+    store.updateEvent(impression().eventId, { status: "failed", error: "boom" });
+    const replay = impression({
+      evidence: { viewMs: 5000, visibleRatio: 0.6, clickRedirected: false, firstSeenAt: "2026-10-12T11:00:00.000Z" },
+      forged: true,
+      createdAt: 99,
+    });
+    const retry = store.claimEvent(replay);
+    expect(retry.created).toBe(true);
+    expect(retry.record.status).toBe("queued");
+    expect(retry.record.evidence).toEqual(impression().evidence);
+    expect(retry.record.forged).toBe(false);
+    expect(retry.record.createdAt).toBe(1);
+  });
+
   it("looks events up case-insensitively", () => {
     const store = createEventStore(file);
     store.claimEvent(impression());

@@ -61,6 +61,12 @@ export function buildCard(input: Omit<ReceiptInput, "rationale"> & { pick: Pick 
   };
 }
 
+/** Receipt page path carrying the card's hashes, so the page can compare them with the chain. */
+export function receiptHref(card: CardData): string {
+  const query = new URLSearchParams({ h: card.receipt.rationaleHash, c: card.receipt.claimsHash });
+  return `/receipt/${encodeURIComponent(card.requestId)}?${query}`;
+}
+
 /** Receipt JSON safe to inline in a script element. */
 export function receiptJson(receipt: Receipt): string {
   return JSON.stringify(receipt).replace(/</g, "\\u003c");

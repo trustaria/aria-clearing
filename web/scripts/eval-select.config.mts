@@ -10,7 +10,7 @@ dotenv.config({ path: [resolve(webRoot, "..", ".env.local"), resolve(webRoot, ".
 export default defineConfig({
   root: webRoot,
   test: {
-    include: ["scripts/eval-kimi.eval.ts"],
+    include: ["scripts/eval-select.eval.ts"],
     environment: "node",
     testTimeout: 3 * 60 * 60 * 1000,
     disableConsoleIntercept: true,

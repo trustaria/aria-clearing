@@ -50,7 +50,10 @@ type Snapshot = {
 export type EventStore = {
   getEvent(eventId: string): EventRecord | undefined;
   listEvents(): EventRecord[];
-  /** Inserts the record unless a non-failed one exists for its eventId; returns whichever is stored. */
+  /**
+   * Inserts the record unless a non-failed one exists for its eventId; returns whichever is stored.
+   * Re-claiming a failed record resets it for another send but keeps its evidence, forged flag and createdAt.
+   */
   claimEvent(record: EventRecord): { record: EventRecord; created: boolean };
   updateEvent(eventId: string, patch: Partial<EventRecord>): EventRecord;
   putServed(pick: ServedPick): void;
@@ -86,7 +89,11 @@ export function createEventStore(file: string): EventStore {
       const key = record.eventId.toLowerCase();
       const existing = data.events[key];
       if (existing && existing.status !== "failed") return { record: existing, created: false };
-      data.events[key] = { ...record, eventId: key as Hex };
+      // A retry after a failed send keeps the first claim's evidence, origin and time.
+      const kept = existing
+        ? { evidence: existing.evidence, forged: existing.forged, createdAt: existing.createdAt }
+        : {};
+      data.events[key] = { ...record, ...kept, eventId: key as Hex };
       save();
       return { record: data.events[key], created: true };
     },

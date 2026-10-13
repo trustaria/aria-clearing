@@ -8,10 +8,11 @@ import { POST as postDraft } from "../app/api/advertise/draft/route";
 import { POST as chat } from "../app/api/chat/route";
 import { draftClaims } from "../lib/claims-draft";
 import { createKimiLimiter, setKimiLimiter } from "../lib/kimi-limiter";
-import { PICK_SENTINEL, streamAnswer, streamTurn, type ChatFrame, type TurnEvent } from "../lib/kimi";
+import { streamAnswer, type ChatFrame } from "../lib/kimi";
 import { readSite } from "../lib/site-reader";
 import { FALLBACK_ANSWER, KIMI_BUSY_NOTICE, KIMI_STOPPED_NOTICE } from "../lib/stub";
-import { campaigns, lisbon } from "./fixtures";
+import { lisbon } from "./fixtures";
+import { routeServeFetch } from "./serve-fetch";
 
 vi.mock("@/lib/advertiser-auth", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../lib/advertiser-auth")>()),
@@ -102,9 +103,6 @@ function expectFallback(frames: ChatFrame[], slug: string | null) {
   expect(frames.at(-1)).toEqual({ type: "done" });
 }
 
-const RATIONALE = "Every package includes airport transfers.";
-const PICK_LINE = `${PICK_SENTINEL}${JSON.stringify({ intent: "commercial", slug: lisbon.slug, claimRefs: [4], rationale: RATIONALE })}`;
-
 async function readFrames(res: Response): Promise<ChatFrame[]> {
   return (await res.text())
     .split("\n")
@@ -137,9 +135,18 @@ beforeAll(async () => {
   process.env.KIMI_BASE_URL = `http://127.0.0.1:${port}/v1`;
   dir = mkdtempSync(join(tmpdir(), "aria-kimi-"));
   process.env.ARIA_CAMPAIGNS_FILE = join(dir, "campaigns.json");
+  process.env.ARIA_EVENTS_FILE = join(dir, "events.json");
+  process.env.ARIA_API_KEY = "ak_test_9Fq2LmZ0tR7wYb3XcVn8Ke1PsAd4Gh6J";
+  delete process.env.ARIA_BASE_URL;
+  delete process.env.ARIA_PUBLISHER_ID;
+  delete process.env.ARIA_SERVE_TIMEOUT_MS;
+  delete process.env.GEMINI_API_KEY;
+  delete process.env.PORT;
+  routeServeFetch();
 });
 
 afterAll(async () => {
+  vi.unstubAllGlobals();
   process.env = saved;
   setKimiLimiter();
   rmSync(dir, { recursive: true, force: true });
@@ -152,33 +159,19 @@ beforeEach(() => {
 });
 
 describe("KIMI request body", () => {
-  it("answers and picks in one streamed request with thinking disabled", async () => {
-    reply = sseOf(["Book the hotel ", "first.\n<<<ARIA", PICK_LINE.slice(7)]);
-    const events: TurnEvent[] = [];
-    const messages = [{ role: "user" as const, content: "Planning Lisbon with kids, what should I book?" }];
-    for await (const event of streamTurn("kimi", messages, campaigns, new AbortController().signal)) events.push(event);
-
-    expect(events).toEqual([
-      { type: "text", delta: "Book the hotel" },
-      { type: "text", delta: " first." },
-      { type: "pick", pick: { slug: lisbon.slug, rationale: RATIONALE, claimRefs: [4] } },
-    ]);
-    expect(bodies).toHaveLength(1);
-    expect(bodies[0]).toMatchObject({ model: "kimi-test", stream: true, thinking: { type: "disabled" } });
-    expect(bodies[0]).not.toHaveProperty("response_format");
-    const system = (bodies[0].messages as { role: string; content: string }[])[0];
-    expect(system.role).toBe("system");
-    expect(system.content).toContain(PICK_SENTINEL);
-    expect(system.content).toContain(`slug: ${lisbon.slug}`);
-  });
-
   it("disables thinking on the streamed answer", async () => {
     reply = sse;
     let text = "";
     const messages = [{ role: "user" as const, content: "hi" }];
     for await (const delta of streamAnswer("kimi", messages, new AbortController().signal)) text += delta;
     expect(text).toBe("Hello there");
-    expect(bodies[0]).toMatchObject({ stream: true, thinking: { type: "disabled" } });
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]).toMatchObject({ model: "kimi-test", stream: true, thinking: { type: "disabled" } });
+    expect(bodies[0]).not.toHaveProperty("response_format");
+    const system = (bodies[0].messages as { role: string; content: string }[])[0];
+    expect(system.role).toBe("system");
+    expect(system.content).not.toContain("slug:");
+    expect(system.content).not.toContain(lisbon.slug);
   });
 
   it("disables thinking on the claims draft request", async () => {
@@ -191,20 +184,25 @@ describe("KIMI request body", () => {
 });
 
 describe("/api/chat with KIMI", () => {
-  it("streams meta, text, card and done from one request", async () => {
-    reply = sseOf(["Book the hotel first.", `\n${PICK_LINE}`]);
-    const frames = await readFrames(await ask("Planning Lisbon with kids, what should I book?"));
-    expect(frames.map((f) => f.type)).toEqual(["meta", "text", "card", "done"]);
-    expect(frames[1]).toEqual({ type: "text", delta: "Book the hotel first." });
-    expect(frames[2]).toMatchObject({ card: { slug: lisbon.slug, rationale: RATIONALE, claimRefs: [4] } });
+  it("streams meta, the answer, the served card and done, with one KIMI request", async () => {
+    reply = sseOf(["Book the hotel ", "first."]);
+    const frames = await readFrames(await ask("Planning a family trip to Lisbon, what should I book?"));
+    expect(frames.map((f) => f.type)).toEqual(["meta", "text", "text", "card", "done"]);
+    expect(frames[1]).toEqual({ type: "text", delta: "Book the hotel " });
+    expect(frames[3]).toMatchObject({ card: { slug: lisbon.slug } });
     expect(bodies).toHaveLength(1);
   });
 
-  it("shows the answer without a card when the pick line is malformed", async () => {
-    reply = sseOf(["RAM is working memory.", `\n${PICK_SENTINEL}{"slug": "lisbon-`]);
+  it("shows the answer without a card when serve has no fill", async () => {
+    reply = sseOf(["RAM is working memory."]);
     const frames = await readFrames(await ask("What's the difference between RAM and storage?"));
     expect(frames.map((f) => f.type)).toEqual(["meta", "text", "done"]);
-    expect(frames[1]).toEqual({ type: "text", delta: "RAM is working memory." });
+  });
+
+  it("streams the answer as KIMI wrote it, nothing held back", async () => {
+    reply = sseOf(["Shift with <<<", " and >>> in C."]);
+    const frames = await readFrames(await ask("hi"));
+    expect(frames.flatMap((f) => (f.type === "text" ? [f.delta] : [])).join("")).toBe("Shift with <<< and >>> in C.");
   });
 
   it("retries a 429, then answers", async () => {
@@ -215,7 +213,7 @@ describe("/api/chat with KIMI", () => {
     expect(calls).toBe(2);
   });
 
-  it("shows the fallback answer and keyword card when no slot opens before the deadline", async () => {
+  it("shows the fallback answer and the served card when no slot opens before the deadline", async () => {
     setKimiLimiter(createKimiLimiter({ rpm: 1, concurrency: 1 }));
     reply = sse;
     await readFrames(await ask("first"));
@@ -234,24 +232,15 @@ describe("/api/chat with KIMI", () => {
     expectFallback(await readFrames(await ask("What's the difference between RAM and storage?")), null);
   });
 
-  it("keeps KIMI's card and sends no second one when only the pick line came", async () => {
-    reply = sseOf([PICK_LINE]);
-    const frames = await readFrames(await ask("Planning Lisbon with kids, what should I book?"));
-    const cards = frames.filter((f) => f.type === "card");
-    expect(cards).toHaveLength(1);
-    expect(cards[0]).toMatchObject({ card: { slug: lisbon.slug, rationale: RATIONALE } });
-    expect(frames.flatMap((f) => (f.type === "text" ? [f.delta] : [])).join("")).toBe(FALLBACK_ANSWER);
-  });
-
   it("shows the fallback answer when KIMI streams no text", async () => {
     reply = sseOf([]);
     expectFallback(await readFrames(await ask("hi")), null);
   });
 
-  it("keeps the streamed text and adds a notice when KIMI stops mid-answer", async () => {
+  it("keeps the streamed text, adds a notice, then still sends the served card when KIMI stops mid-answer", async () => {
     reply = brokenStream("Book the hotel first.");
-    const frames = await readFrames(await ask("Planning Lisbon with kids, what should I book?"));
-    expect(frames.map((f) => f.type)).toEqual(["meta", "text", "notice", "done"]);
+    const frames = await readFrames(await ask("Planning a family trip to Lisbon, what should I book?"));
+    expect(frames.map((f) => f.type)).toEqual(["meta", "text", "notice", "card", "done"]);
     expect(frames[1]).toEqual({ type: "text", delta: "Book the hotel first." });
     expect(frames[2]).toEqual({ type: "notice", message: KIMI_STOPPED_NOTICE });
   });

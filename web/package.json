@@ -8,13 +8,15 @@
     "start": "next start -p 3000",
     "lint": "next lint",
     "test": "vitest run",
-    "eval:kimi": "vitest run --config scripts/eval-kimi.config.mts"
+    "eval:select": "vitest run --config scripts/eval-select.config.mts"
   },
   "dependencies": {
     "@aria-clearing/ops": "workspace:*",
     "@aria-clearing/receipt": "workspace:*",
     "@privy-io/react-auth": "2.14.2",
     "@serwist/next": "9.0.15",
+    "@trustaria/core": "^0.3.0",
+    "@trustaria/react": "^0.3.0",
     "dotenv": "16.4.7",
     "next": "14.2.35",
     "openai": "6.49.0",
