@@ -43,9 +43,12 @@ export async function POST(req: Request) {
       send({ type: "meta", requestId, model });
 
       const pickable = allCampaigns();
+      // At most one card per requestId.
+      let cardSent = false;
       const sendCard = (pick: Pick | null) => {
         const campaign = pick && campaignBySlug(pick.slug, pickable);
-        if (!pick || !campaign) return;
+        if (cardSent || !pick || !campaign) return;
+        cardSent = true;
         const card = buildCard({ ...chainConfig(), requestId, campaign, pick });
         rememberServed({
           requestId,

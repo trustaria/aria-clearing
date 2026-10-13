@@ -234,6 +234,15 @@ describe("/api/chat with KIMI", () => {
     expectFallback(await readFrames(await ask("What's the difference between RAM and storage?")), null);
   });
 
+  it("keeps KIMI's card and sends no second one when only the pick line came", async () => {
+    reply = sseOf([PICK_LINE]);
+    const frames = await readFrames(await ask("Planning Lisbon with kids, what should I book?"));
+    const cards = frames.filter((f) => f.type === "card");
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toMatchObject({ card: { slug: lisbon.slug, rationale: RATIONALE } });
+    expect(frames.flatMap((f) => (f.type === "text" ? [f.delta] : [])).join("")).toBe(FALLBACK_ANSWER);
+  });
+
   it("shows the fallback answer when KIMI streams no text", async () => {
     reply = sseOf([]);
     expectFallback(await readFrames(await ask("hi")), null);
