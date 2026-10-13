@@ -32,6 +32,8 @@ type ClearingEvent {
   campaign: Campaign!
   publisher: Publisher!
   kind: EventKind!
+  # The sponsored sentence as logged onchain
+  rationale: String!
   price: BigInt!
   status: EventStatus! @index
   # True once the advertiser disputed it, kept after settlement
