@@ -104,8 +104,8 @@ shows only what was logged.
    those past the window (at most 15 per report) in one HTTP request to Aria's evidence endpoint, applies the rule
    (impression: viewed ≥ 1 s at ≥ 50 %; click: went through the redirect), and writes one report through the CRE
    forwarder (the mock forwarder on Monad testnet) to `onReport`. In this demo the workflow is not deployed to a
-   DON: it runs on demand with `cre workflow simulate --broadcast` (see [Run it](#run-it)), which runs it locally
-   and sends the report from Aria's key.
+   DON: a scheduled GitHub Action (`.github/workflows/settle.yml`) runs `cre workflow simulate --broadcast` every
+   10 minutes, and it can be run by hand (see [Run it](#run-it)); the report is sent from Aria's key.
 5. **Payout.** In the same transaction, released events pay the app's account directly (`PaidOut`); rejected
    and disputed events return to the advertiser's budget. Aria's fee is taken only here, on verified events:
    20 % of the price, fixed when the contract is deployed (the constructor refuses more than 30 %). The app
@@ -145,7 +145,7 @@ Rules: `ops/src/policy.ts`. Probes: `pnpm --filter @aria-clearing/ops privy:prob
 | An impression from the card's beacon carries a token Aria signed for a request it served (Aria's server, before logging) | That every impression came through the beacon: an older route, `POST /api/aria/events`, still logs an impression for a served request without a token |
 | Impressions met the viewability rule in the evidence | That the evidence endpoint tells the truth: it is Aria's |
 | Clicks went through Aria's redirect | Independent parties: every key is Aria's in this demo |
-| The relayer cannot pay anyone (contract roles + Privy policy) | Decentralised execution: the workflow runs in CRE simulation, and the Monad testnet mock forwarder is permissionless |
+| The relayer cannot pay anyone (contract roles + Privy policy) | Decentralised execution: the workflow runs in CRE simulation on a 10-minute GitHub Actions schedule, not on a DON, and the Monad testnet mock forwarder is permissionless |
 | The sentence you pass (`--sentence`, `--receipt`, or the card's `?h=` link) equals the one logged for that request | Without that input, only that the logged record is internally consistent: the contract hashes what it logs |
 | | That the sentence is a faithful reading of the claims: an LLM wrote it, citing claim numbers |
 | | That the ad choice is production-grade: the serve API's selector is a single Gemini call (keywords as fallback), not Aria's production classifier and auction |
@@ -194,7 +194,7 @@ Either way, a new campaign joins the list Aria's serve API picks from as soon as
 - **One transaction per impression and click is affordable**, so every sponsored line gets its own onchain
   receipt rather than a batch entry.
 - **~400 ms blocks and ~800 ms finality** make the lifecycle visible live: once the 20-second dispute window has
-  closed, one settlement run takes a receipt from logged to paid in a single transaction.
+  closed, the next settlement run (every 10 minutes) takes a receipt from logged to paid in a single transaction.
 - **Native USDC** for escrow and payouts (`0x534b2f3A21130d7a60830c2Df862319e593943A3` on testnet).
 - Monad-specific details handled in code: gas is charged on the gas limit, so limits are measured and set
   tightly; the relayer sends one transaction at a time; `eth_getLogs` is limited to 100 blocks, so the verifier
@@ -302,8 +302,9 @@ key. Its demo controls (forge, dispute, "Relayer tries to pay", publisher regist
 `ARIA_DEMO_KEY` is set; with it set, as on the live site, they need the key. Set it before hosting a copy anywhere
 public.
 
-Settle pending events (after the dispute window). This runs the CRE workflow once, locally; nothing settles until
-someone runs it:
+Settle pending events (after the dispute window). The `settle` GitHub Action does this every 10 minutes for the
+live contract (secrets in [`cre/README.md`](cre/README.md#scheduled-settlement)); to run the CRE workflow once,
+locally:
 
 ```bash
 cd cre && cp .env.example .env   # CRE_ETH_PRIVATE_KEY: a funded Monad testnet key that sends the report
