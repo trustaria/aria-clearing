@@ -90,17 +90,19 @@ testnet; the production forwarder verifies DON signatures.
 
 ## A real run on Monad testnet
 
-`simulate --broadcast` against the live contract `0xfb6bA8e6c48c806AFC40aFee5F85deE42Ce8F2fb`, settling a viewed
-impression and a click from Nova:
+`simulate --broadcast` against the live contract `0x431e97E2EB23ac06C9f807cC8DCe54499C1bDC7B`, settling a viewed
+impression and a click from Nova, and rejecting a forged impression (never on screen):
 
 ```
-[USER LOG] aria-settle: 2 pending, 2 past the 20s window (now=1791834538, cap=15)
-[USER LOG] aria-settle: release 2, reject 0
-[USER LOG] aria-settle:   release 0xec81f4f7eb51813c1b4d397d699195e2fd6bba196d62144309f6c282f6c8cd6a
-[USER LOG] aria-settle:   release 0xa5cb4f5a0d334dacd69bbb44ef39d7821a7f5d2d3b2d0a13d594c233413d748b
-[USER LOG] aria-settle: writeReport txStatus=SUCCESS receiver=0 tx=0xc493509d379db218bb9eb54d109f5213d7e772559059b2c49199563e5d0981f2
+[USER LOG] aria-settle: 3 pending, 3 past the 20s window (now=1791909396, cap=15)
+[USER LOG] aria-settle: release 2, reject 1
+[USER LOG] aria-settle:   release 0x6190f53d5c344b86281e7103d61078c3e4f8fc871caebdf3af6c9685e6564b02
+[USER LOG] aria-settle:   release 0x1b8f080cbaad7f8c21d390921d60fe944b0f55261e840385de51d3ad83bac40b
+[USER LOG] aria-settle:   reject  0xffe4fbe0b0f70e82b18d90482791ebc3e54bfeb3524e0e7c5b5ea64be275a387
+[USER LOG] aria-settle: writeReport txStatus=SUCCESS receiver=0 tx=0x24b97108e45d388ec6ea1f8fb663f46e30c39066bfa0c1ea83aece0beb967832
 ```
 
-The settlement tx emits `EventSettled` (released) and `PaidOut` for both events:
-[0xc493…81f2](https://testnet.monadvision.com/tx/0xc493509d379db218bb9eb54d109f5213d7e772559059b2c49199563e5d0981f2).
-Check it yourself: `pnpm --filter @aria-clearing/receipt verify req_bqJymQAubWx7q03A1zA2FD`.
+The settlement tx emits `EventSettled` for all three and `PaidOut` for the two released events, each with the
+app's amount and Aria's 20 % fee ($0.008 + $0.002 and $0.20 + $0.05):
+[0x24b9…7832](https://testnet.monadvision.com/tx/0x24b97108e45d388ec6ea1f8fb663f46e30c39066bfa0c1ea83aece0beb967832).
+Check it yourself: `pnpm --filter @aria-clearing/receipt verify req_36wX7fR79VnTOVHwllgYhA`.

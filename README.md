@@ -9,7 +9,7 @@ alone, and it pays the app only after a Chainlink CRE workflow has checked the e
 
 Track: **Trust, Identity & AI Infrastructure** (Metropolis hackathon).
 
-- Contract (Monad testnet, source verified): [`0xfb6bA8e6c48c806AFC40aFee5F85deE42Ce8F2fb`](https://testnet.monadvision.com/address/0xfb6bA8e6c48c806AFC40aFee5F85deE42Ce8F2fb)
+- Contract (Monad testnet, source verified): [`0x431e97E2EB23ac06C9f807cC8DCe54499C1bDC7B`](https://testnet.monadvision.com/address/0x431e97E2EB23ac06C9f807cC8DCe54499C1bDC7B)
 - Demo video: _link added at submission_
 
 ## The receipt
@@ -62,9 +62,10 @@ the event:
 
 ```bash
 pnpm install
-pnpm --filter @aria-clearing/receipt verify req_payout1791832698
-pnpm --filter @aria-clearing/receipt verify req_bqJymQAubWx7q03A1zA2FD \
-  --sentence "Family packages for Lisbon and the Algarve, 3 to 10 nights. Children under 6 stay free in partner hotels."
+pnpm --filter @aria-clearing/receipt verify req_36wX7fR79VnTOVHwllgYhA \
+  --sentence "For a Lisbon family trip, packages cover 3 to 10 nights and children under 6 stay free."
+# ✓ publisher amount + Aria fee = price
+#     paid  $0.2000 to 0x6743…72cb · Aria fee $0.0500 (20 %)
 # ✓ The sentence you saw is the one that was logged and paid for
 ```
 
@@ -96,7 +97,10 @@ shows only what was logged.
    one HTTP request, applies the rule (impression: viewed ≥ 1 s at ≥ 50 %; click: went through the redirect),
    and writes one report through the Chainlink forwarder to `onReport`.
 5. **Payout.** In the same transaction, released events pay the app's account directly (`PaidOut`); rejected
-   and disputed events return to the advertiser's budget. Aria pays all gas: the app never signs, claims or
+   and disputed events return to the advertiser's budget. Aria's fee is taken only here, on verified events:
+   20 % of the price, fixed when the contract is deployed (the constructor refuses more than 30 %). The app
+   receives the rest, both amounts are in `PaidOut`, and `verify` checks that they add up to the price. Fees
+   accrue in the contract; `withdrawFees()` can be called by anyone and always pays Aria's fee address. Aria pays all gas: the app never signs, claims or
    holds gas tokens. If a transfer ever fails, the amount waits as credit (`PayoutDeferred`) and `claim()` pays
    it out; that fallback is the one path where the app's account needs gas.
 

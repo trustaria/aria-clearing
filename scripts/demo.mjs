@@ -14,7 +14,7 @@ const PAGES = [
   "/dashboard",
   "/advertise",
   "/advertise/new",
-  "/receipt/req_bqJymQAubWx7q03A1zA2FD",
+  "/receipt/req_36wX7fR79VnTOVHwllgYhA",
   "/api/aria/events",
 ];
 
