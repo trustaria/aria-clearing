@@ -228,7 +228,6 @@ graph LR
 | `indexer/` | Envio HyperIndex: campaigns, event lifecycle with each sponsored sentence, and a per-publisher trust score; serves the dashboard's totals, activity feed and trust score, and the campaign page's counts and sentences |
 | `ops/` | Privy server wallets (relayer, advertiser treasury), their policies, probes and `sendFromWallet()` |
 | `web/` | Nova (the reference AI app, a publisher using `@trustaria/core` and `@trustaria/react`), Aria's API routes including the serve API and the impression beacon, the receipt page, the publisher dashboard and the advertiser console |
-| `vendor/` | the `@trustaria/core` and `@trustaria/react` package tarballs the web app installs |
 | `deployments/` | `10143.json`: the live contract address and deploy block |
 
 ## Technology
@@ -334,9 +333,9 @@ card is viewed as soon as it appears; a held card sends its beacon to a sink tha
   [`next-serwist-privy-embedded-wallet`](https://github.com/monad-developers/next-serwist-privy-embedded-wallet)
   (Next.js + Privy embedded wallet on Monad testnet).
 - `@trustaria/core`: Aria's publisher SDK, MIT, © 2026 Evermore Labs Co. Used as a dependency
-  (`vendor/trustaria-core-0.3.0-pre.tgz`), not modified here.
+  ([`@trustaria/core` on npm](https://www.npmjs.com/package/@trustaria/core)), not modified here.
 - `@trustaria/react`: Aria's React card for publishers (`AriaAdCard`, the events handler), MIT, © 2026 Evermore
-  Labs Co. Used as a dependency (`vendor/trustaria-react-0.3.0-pre.tgz`), not modified here.
+  Labs Co. Used as a dependency ([`@trustaria/react` on npm](https://www.npmjs.com/package/@trustaria/react)), not modified here.
 
 Everything else in this repository was written for this hackathon.
 

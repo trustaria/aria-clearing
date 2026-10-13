@@ -12,7 +12,6 @@ COPY web/package.json web/
 COPY receipt/package.json receipt/
 COPY ops/package.json ops/
 COPY indexer/package.json indexer/
-COPY vendor/ vendor/
 RUN pnpm install --frozen-lockfile --filter @aria-clearing/web...
 
 FROM deps AS build
