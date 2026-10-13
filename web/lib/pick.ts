@@ -2,7 +2,6 @@ import { normalizeRationale } from "@aria-clearing/receipt";
 import type { Campaign } from "./campaigns";
 
 export const MAX_RATIONALE = 180;
-export const PICK_DEADLINE_MS = 6000;
 
 export type Pick = {
   slug: string;

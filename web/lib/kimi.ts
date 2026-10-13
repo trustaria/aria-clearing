@@ -1,9 +1,8 @@
 import OpenAI from "openai";
-import type { CompletionUsage } from "openai/resources/completions";
 import type { Campaign } from "./campaigns";
 import { kimiLimiter } from "./kimi-limiter";
 import { describeCampaigns } from "./serve/select";
-import { MAX_RATIONALE, parsePickJson, validatePick, type Pick } from "./pick";
+import { MAX_RATIONALE, validatePick, type Pick } from "./pick";
 import type { CardData } from "./receipt";
 import { FALLBACK_ANSWER, STUB_ANSWER, stubAnswer, stubPick } from "./stub";
 
@@ -57,14 +56,6 @@ const PICK_RULES = [
   "Add no facts, benefits, judgements or inferences of your own",
   "(no ideal, perfect, easy, so you can, which covers; free only where the claim says free).",
   'No claim numbers or brackets in the sentence. "" when slug is null.',
-].join("\n");
-
-const PICK_SYSTEM = [
-  "You choose at most one sponsored card to show next to an AI assistant's answer, as a careful ad network would.",
-  "Reply with one JSON object only, keys in this order:",
-  PICK_KEYS,
-  "",
-  PICK_RULES,
 ].join("\n");
 
 /** System prompt for one chat turn: the answer, then a final pick line for the latest user message. */
@@ -275,35 +266,4 @@ export async function* streamAnswer(
   } finally {
     release();
   }
-}
-
-export type PickReply = { raw: unknown; usage?: CompletionUsage };
-
-/**
- * One standalone pick request: the parsed JSON reply and its token usage. Throws on unparseable output.
- * `maxRetries` overrides the limiter's 429 retries.
- */
-export async function requestPick(
-  question: string,
-  campaigns: Campaign[],
-  signal: AbortSignal,
-  maxRetries?: number,
-): Promise<PickReply> {
-  const user = `Campaigns:\n\n${describeCampaigns(campaigns)}\n\nQuestion: ${question}`;
-  const res = await kimiLimiter().run(
-    () =>
-      kimiClient().chat.completions.create(
-        kimiBody({
-          model: kimiModel(),
-          response_format: { type: "json_object" as const },
-          messages: [
-            { role: "system" as const, content: PICK_SYSTEM },
-            { role: "user" as const, content: user },
-          ],
-        }),
-        { signal },
-      ),
-    { deadline: Date.now() + KIMI_START_DEADLINE_MS, signal, retries: maxRetries },
-  );
-  return { raw: parsePickJson(res.choices[0]?.message?.content ?? ""), usage: res.usage };
 }
