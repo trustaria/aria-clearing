@@ -32,7 +32,7 @@ cre/
 
 | Field | Value |
 |---|---|
-| `schedule` | cron with seconds; simulation fires once on demand |
+| `schedule` | `*/30 * * * * *` (every 30 s) once deployed to a DON; a simulation runs the handler once per invocation |
 | `chainSelectorName` | `monad-testnet` (selector `2183018362218727504`) |
 | `clearingAddress` | AriaClearing address from `deployments/10143.json` |
 | `evidenceUrl` | the live site's `https://web-production-95cf9.up.railway.app/api/aria/evidence`; `http://localhost:3000/api/aria/evidence` against a local web app |
@@ -87,6 +87,20 @@ Running it again settles nothing new: settled ids leave `pendingEvents()`.
 
 The mock forwarder is permissionless and skips signature checks, so anyone can route a report through it on
 testnet; the production forwarder verifies DON signatures.
+
+## Scheduled settlement
+
+The workflow isn't deployed to a DON. `.github/workflows/settle.yml` runs the simulation with `--broadcast` every
+10 minutes (GitHub's schedule is best effort) and on demand (Actions → settle → Run workflow), so events logged by
+the live app are settled without anyone running the command. A run with nothing past the dispute window sends no
+transaction; a run that settles sends one report for up to 15 events.
+
+It installs a pinned CRE CLI release (checked against its SHA-256) and needs two repository secrets:
+
+| Secret | Value |
+|---|---|
+| `CRE_API_KEY` | a CRE API key from app.chain.link (Account Settings); replaces `cre login` |
+| `CRE_ETH_PRIVATE_KEY` | the funded Monad testnet key that broadcasts the report (pays gas, ~0.15 MON per settling run) |
 
 ## A real run on Monad testnet
 
