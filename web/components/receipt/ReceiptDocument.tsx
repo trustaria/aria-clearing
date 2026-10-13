@@ -1,5 +1,6 @@
 import type { CheckState, EventView, ReceiptView, SeenView, StepView, Tone } from "../../app/receipt/view-model";
 import { shortAddress, shortHash } from "../../lib/format";
+import { AriaEyebrow } from "../AriaBrand";
 import CopyCommand from "./CopyCommand";
 
 const TONE: Record<Tone, string> = {
@@ -152,7 +153,7 @@ export default function ReceiptDocument({ view, trust }: { view: ReceiptView; tr
       <header className="space-y-8">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">Aria receipt</p>
+            <AriaEyebrow>receipt</AriaEyebrow>
             <p className="mt-1 font-mono text-sm text-stone-500">{view.requestId}</p>
           </div>
           <StatusPill tone={view.status.tone} label={view.status.label} />

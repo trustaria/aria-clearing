@@ -6,7 +6,7 @@
   "orientation": "portrait",
 
   "background_color": "#FFFFFF",
-  "start_url": "/",
+  "start_url": "/ai-chat",
   "scope": "/",
   "id": "/",
   "icons": [

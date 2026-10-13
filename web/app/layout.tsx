@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
-import { NOVA_ICONS } from "../lib/brand-icons";
+import DemoBar from "../components/DemoBar";
+import { ARIA_ICONS } from "../lib/brand-icons";
+import { DEMO_BAR_SCRIPT } from "../lib/demo-bar";
 import "./globals.css";
 
 const geistSans = localFont({
@@ -14,49 +16,13 @@ const geistMono = localFont({
   weight: "100 900",
 });
 
-const APP_NAME = "Nova";
-const APP_DEFAULT_TITLE = "Nova";
-const APP_TITLE_TEMPLATE = "%s - Nova";
-const APP_DESCRIPTION = "A chat assistant whose sponsored lines carry verifiable receipts.";
+const DESCRIPTION =
+  "Clearing for sponsored AI answers: every sponsored line has a receipt, verified by Chainlink, settled on Monad.";
 
 export const metadata: Metadata = {
-  applicationName: APP_NAME,
-  title: {
-    default: APP_DEFAULT_TITLE,
-    template: APP_TITLE_TEMPLATE,
-  },
-  description: APP_DESCRIPTION,
-  manifest: "/manifest.json",
-  icons: NOVA_ICONS,
-  appleWebApp: {
-    capable: true,
-    statusBarStyle: "black-translucent",
-    title: APP_DEFAULT_TITLE,
-    // startUpImage: [],
-  },
-  other: {
-    'mobile-web-app-capable': 'yes',
-  },
-  formatDetection: {
-    telephone: false,
-  },
-  openGraph: {
-    type: "website",
-    siteName: APP_NAME,
-    title: {
-      default: APP_DEFAULT_TITLE,
-      template: APP_TITLE_TEMPLATE,
-    },
-    description: APP_DESCRIPTION,
-  },
-  twitter: {
-    card: "summary",
-    title: {
-      default: APP_DEFAULT_TITLE,
-      template: APP_TITLE_TEMPLATE,
-    },
-    description: APP_DESCRIPTION,
-  },
+  title: "Aria Clearing",
+  description: DESCRIPTION,
+  icons: ARIA_ICONS,
 };
 
 export const viewport: Viewport = {
@@ -72,10 +38,15 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    // The head script may set data-demo-bar on <html> before hydration.
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: DEMO_BAR_SCRIPT }} />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
+        <DemoBar />
         {children}
       </body>
     </html>

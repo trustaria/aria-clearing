@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
+import { AriaEyebrow } from "../../../components/AriaBrand";
 import AutoRefresh from "../../../components/receipt/AutoRefresh";
 import CopyCommand from "../../../components/receipt/CopyCommand";
 import ReceiptDocument from "../../../components/receipt/ReceiptDocument";
@@ -43,7 +44,7 @@ function Notice({
   return (
     <article className="space-y-8">
       <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">Aria receipt</p>
+        <AriaEyebrow>receipt</AriaEyebrow>
         <p className="mt-1 font-mono text-sm text-stone-500">{requestId}</p>
       </div>
       <div className="space-y-3">

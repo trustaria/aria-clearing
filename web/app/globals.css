@@ -32,6 +32,15 @@
   }
 }
 
+/* Demo bar dismissal, set on <html> by lib/demo-bar.ts. */
+html[data-demo-bar="hidden"] .demo-bar {
+  display: none;
+}
+
+html[data-demo-bar="hidden"] .demo-bar-restore {
+  display: inline;
+}
+
 body {
   color: var(--foreground);
   background: var(--background);

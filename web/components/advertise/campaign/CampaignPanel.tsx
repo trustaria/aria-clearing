@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { DisputeResult, EndResult } from "../../../lib/advertise-client";
 import type { CampaignStatsJson } from "../../../lib/advertiser-data";
+import { AriaEyebrow } from "../../AriaBrand";
 import { Section } from "../../receipt/ReceiptDocument";
 import { NO_ACTIONS, reduceActions, runDispute, runEnd, WALLET_DISPUTE_MIN_S, type EndState } from "./actions";
 import { toCampaignView, type CampaignView, type SentenceRow, type StatCard, type Tone } from "./view-model";
@@ -24,12 +25,12 @@ const SMALL_BUTTON =
 
 export function Eyebrow() {
   return (
-    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
-      Aria for advertisers ·{" "}
+    <AriaEyebrow>
+      for advertisers ·{" "}
       <a href="/advertise" className="normal-case tracking-normal hover:text-stone-900">
         ← Campaigns
       </a>
-    </p>
+    </AriaEyebrow>
   );
 }
 
@@ -376,7 +377,7 @@ export default function CampaignPanel({
       {isNew && view?.endable && actions.end.phase === "idle" && (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 px-5 py-4 text-[15px] leading-relaxed text-emerald-950">
           <p>Your campaign is live. AI answers can recommend it from now.</p>
-          <a href="/" className="mt-1 inline-block font-medium underline decoration-emerald-300 underline-offset-4 hover:decoration-emerald-600">
+          <a href="/ai-chat" className="mt-1 inline-block font-medium underline decoration-emerald-300 underline-offset-4 hover:decoration-emerald-600">
             Try it in Nova →
           </a>
         </div>

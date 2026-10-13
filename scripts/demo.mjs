@@ -10,7 +10,8 @@ const base = process.env.DEMO_URL || "http://localhost:3000";
 
 const PAGES = [
   "/",
-  "/?debug=1",
+  "/ai-chat",
+  "/ai-chat?debug=1",
   "/dashboard",
   "/advertise",
   "/advertise/new",

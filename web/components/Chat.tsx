@@ -1,6 +1,7 @@
 "use client";
 
 import type { AdPayload } from "@trustaria/react";
+import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { ChatFrame, ChatMessage, ModelName } from "../lib/kimi";
 import type { CardData } from "../lib/receipt";
@@ -113,7 +114,9 @@ export default function Chat({
       <DebugBar locked={debugLocked} />
       <header className="flex items-center justify-between py-5">
         <div className="flex items-center gap-3">
-          <span className="text-lg font-semibold tracking-tight">Nova</span>
+          <Link href="/ai-chat" className="text-lg font-semibold tracking-tight">
+            Nova
+          </Link>
           {model === "stub" && (
             <span className="rounded border border-amber-400 px-1.5 py-0.5 font-mono text-[10px] font-semibold tracking-wider text-amber-700 dark:text-amber-400">
               STUB MODEL

@@ -7,7 +7,14 @@ import {
   type SeenCheck,
 } from "@aria-clearing/receipt";
 import type { PublisherStats } from "../../lib/envio";
-import { addressUrl, formatDollars, formatShare, formatUsdc, shortHash, txUrl } from "../../lib/format";
+import {
+  addressUrl,
+  formatDollars,
+  formatShare,
+  formatUsdc,
+  shortHash,
+  txUrl,
+} from "../../lib/format";
 
 export type Tone = "pending" | "warn" | "good" | "bad";
 export type CheckState = "pass" | "fail" | "unknown";
@@ -93,9 +100,24 @@ export interface ReceiptView {
 }
 
 export const STATUS: Record<EventStatus, StatusView> = {
-  logged: { status: "logged", label: "Logged", tone: "pending", note: "On chain, awaiting verification" },
-  disputed: { status: "disputed", label: "Disputed", tone: "warn", note: "Under review before settlement" },
-  released: { status: "released", label: "Verified", tone: "good", note: "Evidence checked, paid to the publisher" },
+  logged: {
+    status: "logged",
+    label: "Logged",
+    tone: "pending",
+    note: "On chain, awaiting verification: Chainlink settles new events every 10 minutes",
+  },
+  disputed: {
+    status: "disputed",
+    label: "Disputed",
+    tone: "warn",
+    note: "Under review before settlement",
+  },
+  released: {
+    status: "released",
+    label: "Verified",
+    tone: "good",
+    note: "Evidence checked, paid to the publisher",
+  },
   rejected: {
     status: "rejected",
     label: "Rejected",
@@ -104,10 +126,18 @@ export const STATUS: Record<EventStatus, StatusView> = {
   },
 };
 
-const DISPUTED_REJECTED: StatusView = { ...STATUS.rejected, note: "Disputed by the advertiser, budget returned" };
+const DISPUTED_REJECTED: StatusView = {
+  ...STATUS.rejected,
+  note: "Disputed by the advertiser, budget returned",
+};
 
 /** Most cautious first: one rejected event marks the whole receipt rejected. */
-const STATUS_PRIORITY: EventStatus[] = ["rejected", "disputed", "logged", "released"];
+const STATUS_PRIORITY: EventStatus[] = [
+  "rejected",
+  "disputed",
+  "logged",
+  "released",
+];
 
 const CLAIM_LINE = /^(\d+)\.\s+(.*)$/;
 
@@ -144,7 +174,10 @@ function splitLine(payouts: Payout[], feeBps: number | null): string | null {
 function splitCheck(receipt: Receipt): CheckView | null {
   const paid = receipt.events.filter((e) => e.payout);
   if (paid.length === 0) return null;
-  const rate = receipt.feeBps === null ? "" : `, at the contract's ${formatShare(receipt.feeBps)} fee`;
+  const rate =
+    receipt.feeBps === null
+      ? ""
+      : `, at the contract's ${formatShare(receipt.feeBps)} fee`;
   return {
     key: "split",
     label: "Payment split",
@@ -154,7 +187,8 @@ function splitCheck(receipt: Receipt): CheckView | null {
 }
 
 function checksOf(receipt: Receipt): CheckView[] {
-  const all = (test: (e: ReceiptEvent) => boolean) => receipt.events.length > 0 && receipt.events.every(test);
+  const all = (test: (e: ReceiptEvent) => boolean) =>
+    receipt.events.length > 0 && receipt.events.every(test);
   const split = splitCheck(receipt);
   return [
     {
@@ -175,14 +209,18 @@ function checksOf(receipt: Receipt): CheckView[] {
     {
       key: "eventId",
       label: "Event id",
-      detail: "keccak256(abi.encode(requestId, kind)) equals the logged eventId",
+      detail:
+        "keccak256(abi.encode(requestId, kind)) equals the logged eventId",
       state: checkState(all((e) => e.eventIdMatches)),
     },
     {
       key: "contract",
       label: "Contract state",
-      detail: "The contract's record agrees with the logged event and its claims",
-      state: checkState(all((e) => e.viewMatches && e.campaignMatches && e.claimRefsValid)),
+      detail:
+        "The contract's record agrees with the logged event and its claims",
+      state: checkState(
+        all((e) => e.viewMatches && e.campaignMatches && e.claimRefsValid),
+      ),
     },
     ...(split ? [split] : []),
   ];
@@ -191,7 +229,12 @@ function checksOf(receipt: Receipt): CheckView[] {
 function stepsOf(event: ReceiptEvent): StepView[] {
   const steps: StepView[] = [
     { key: "issued", label: "Issued", state: "done" },
-    { key: "logged", label: "Logged", state: "done", txUrl: txUrl(event.loggedTx) },
+    {
+      key: "logged",
+      label: "Logged",
+      state: "done",
+      txUrl: txUrl(event.loggedTx),
+    },
   ];
   if (event.status === "disputed" || event.disputedTx) {
     steps.push({
@@ -202,8 +245,20 @@ function stepsOf(event: ReceiptEvent): StepView[] {
     });
   }
   const settled = event.settledTx ? { txUrl: txUrl(event.settledTx) } : {};
-  if (event.status === "released") steps.push({ key: "verified", label: "Verified · paid", state: "done", ...settled });
-  else if (event.status === "rejected") steps.push({ key: "rejected", label: "Rejected", state: "failed", ...settled });
+  if (event.status === "released")
+    steps.push({
+      key: "verified",
+      label: "Verified · paid",
+      state: "done",
+      ...settled,
+    });
+  else if (event.status === "rejected")
+    steps.push({
+      key: "rejected",
+      label: "Rejected",
+      state: "failed",
+      ...settled,
+    });
   else steps.push({ key: "verified", label: "Verified", state: "pending" });
   return steps;
 }
@@ -213,12 +268,16 @@ function wasDisputed(event: ReceiptEvent): boolean {
 }
 
 function statusOfEvent(event: ReceiptEvent): StatusView {
-  return event.status === "rejected" && wasDisputed(event) ? DISPUTED_REJECTED : STATUS[event.status];
+  return event.status === "rejected" && wasDisputed(event)
+    ? DISPUTED_REJECTED
+    : STATUS[event.status];
 }
 
 /** The event that decides the receipt's status: most cautious first. */
 function decidingEvent(events: ReceiptEvent[]): ReceiptEvent | undefined {
-  const found = STATUS_PRIORITY.find((status) => events.some((e) => e.status === status));
+  const found = STATUS_PRIORITY.find((status) =>
+    events.some((e) => e.status === status),
+  );
   return events.find((e) => e.status === found);
 }
 
@@ -240,7 +299,9 @@ function lifecycleSummary(events: ReceiptEvent[]): string {
 const HASH_PARAM = /^0x[0-9a-fA-F]{64}$/;
 
 /** The card's hashes from the receipt link (`h` sentence, `c` claims); malformed values are dropped. */
-export function expectedFromQuery(query: Record<string, string | string[] | undefined>): ExpectedReceipt | undefined {
+export function expectedFromQuery(
+  query: Record<string, string | string[] | undefined>,
+): ExpectedReceipt | undefined {
   const first = (key: string) => {
     const value = query[key];
     const text = Array.isArray(value) ? value[0] : value;
@@ -249,7 +310,10 @@ export function expectedFromQuery(query: Record<string, string | string[] | unde
   const h = first("h");
   const c = first("c");
   if (!h && !c) return undefined;
-  return { ...(h ? { rationaleHash: h } : {}), ...(c ? { claimsHash: c } : {}) };
+  return {
+    ...(h ? { rationaleHash: h } : {}),
+    ...(c ? { claimsHash: c } : {}),
+  };
 }
 
 const SEEN_LABEL: Partial<Record<SeenCheck["field"], string>> = {
@@ -260,7 +324,8 @@ const SEEN_LABEL: Partial<Record<SeenCheck["field"], string>> = {
 const ABSENT: SeenView = {
   state: "absent",
   title: "Opened without the card's fingerprint — showing what was logged.",
-  detail: "Open this page from the card's “Why this ad?” link to check that the sentence you saw is the one logged on Monad.",
+  detail:
+    "Open this page from the card's “Why this ad?” link to check that the sentence you saw is the one logged on Monad.",
   differences: [],
 };
 
@@ -275,13 +340,16 @@ function seenOf(receipt: Receipt): SeenView {
       logged: c.actual === null ? "not found" : shortHash(c.actual),
     }));
   if (differences.length > 0) {
-    const sentenceDiffers = seen.some((c) => c.field === "rationaleHash" && !c.matches);
+    const sentenceDiffers = seen.some(
+      (c) => c.field === "rationaleHash" && !c.matches,
+    );
     return {
       state: "mismatch",
       title: sentenceDiffers
         ? "The sentence you saw does not match the one logged on Monad"
         : "The card's claims do not match the ones logged on Monad",
-      detail: "The card's fingerprint differs from what was logged, so this receipt does not cover what you saw.",
+      detail:
+        "The card's fingerprint differs from what was logged, so this receipt does not cover what you saw.",
       differences,
     };
   }
@@ -289,7 +357,8 @@ function seenOf(receipt: Receipt): SeenView {
     return {
       state: "mismatch",
       title: "The logged record is not internally consistent",
-      detail: "The card's fingerprint matches, but the logged record disagrees with itself. See the checks below.",
+      detail:
+        "The card's fingerprint matches, but the logged record disagrees with itself. See the checks below.",
       differences: [],
     };
   }
@@ -327,12 +396,18 @@ export function toReceiptView(receipt: Receipt, contract: string): ReceiptView {
     advertiser: receipt.campaign.advertiser,
     advertiserUrl: addressUrl(receipt.campaign.advertiser),
     campaignId: receipt.campaign.campaignId,
-    campaignTxUrl: receipt.campaign.createdTx ? txUrl(receipt.campaign.createdTx) : null,
+    campaignTxUrl: receipt.campaign.createdTx
+      ? txUrl(receipt.campaign.createdTx)
+      : null,
     contract,
     contractUrl: addressUrl(contract),
-    claims: receipt.campaign.claims === null ? null : parseClaims(receipt.campaign.claims, cited),
+    claims:
+      receipt.campaign.claims === null
+        ? null
+        : parseClaims(receipt.campaign.claims, cited),
     checks: checksOf(receipt),
-    status: seen.state === "mismatch" ? MISMATCH : overallStatus(receipt.events),
+    status:
+      seen.state === "mismatch" ? MISMATCH : overallStatus(receipt.events),
     lifecycleSummary: lifecycleSummary(receipt.events),
     totalPrice: formatUsdc(total),
     payment: splitLine(
@@ -347,7 +422,9 @@ export function toReceiptView(receipt: Receipt, contract: string): ReceiptView {
       split: splitLine(event.payout ? [event.payout] : [], receipt.feeBps),
       steps: stepsOf(event),
     })),
-    final: receipt.events.every((e) => e.status === "released" || e.status === "rejected"),
+    final: receipt.events.every(
+      (e) => e.status === "released" || e.status === "rejected",
+    ),
     verifyCommand: verifyCommand(receipt.requestId),
   };
 }

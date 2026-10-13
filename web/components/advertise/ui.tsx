@@ -1,5 +1,7 @@
 // Shared pieces of the advertiser console, in the publisher dashboard's visual language.
 
+import { AriaEyebrow } from "../AriaBrand";
+
 export const PRIMARY =
   "rounded-lg bg-stone-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-stone-700 disabled:cursor-not-allowed disabled:bg-stone-300";
 export const SECONDARY =
@@ -16,7 +18,7 @@ export function inputBorder(invalid: boolean): string {
 }
 
 export function Eyebrow() {
-  return <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">Aria for advertisers</p>;
+  return <AriaEyebrow>for advertisers</AriaEyebrow>;
 }
 
 /** Page frame with the eyebrow, the signed-in email and a sign-out button. */

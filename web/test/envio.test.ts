@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getCampaignIndex,
+  getLatestReleasedRequestId,
   getPublisherIndex,
   getPublisherStats,
   toIndexedEvent,
@@ -324,5 +325,29 @@ describe("getCampaignIndex", () => {
     vi.stubGlobal("fetch", fetchMock);
     expect(await getCampaignIndex("0x1234")).toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("getLatestReleasedRequestId", () => {
+  it("asks for the newest released event and returns its requestId", async () => {
+    const fetchMock = respondWith({ data: { ClearingEvent: [{ requestId: "req_rPLLG0Y5cyHvblTNRXcYvc" }] } });
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect(await getLatestReleasedRequestId()).toBe("req_rPLLG0Y5cyHvblTNRXcYvc");
+    const { query } = JSON.parse(String(fetchMock.mock.calls[0]![1]?.body));
+    expect(query).toContain('status: { _eq: "released" }');
+    expect(query).toContain("settledAt: desc_nulls_last");
+    expect(query).toContain("limit: 1");
+  });
+
+  it("returns null when nothing is released yet or the indexer fails", async () => {
+    vi.stubGlobal("fetch", respondWith({ data: { ClearingEvent: [] } }));
+    expect(await getLatestReleasedRequestId()).toBeNull();
+
+    vi.stubGlobal("fetch", vi.fn(async () => Promise.reject(new TypeError("fetch failed"))));
+    expect(await getLatestReleasedRequestId()).toBeNull();
+
+    vi.stubGlobal("fetch", respondWith({ errors: [{ message: "field not found" }] }));
+    expect(await getLatestReleasedRequestId()).toBeNull();
   });
 });

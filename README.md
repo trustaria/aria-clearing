@@ -10,7 +10,7 @@ alone, and it pays the app only after a Chainlink CRE workflow has checked the e
 Track: **Trust, Identity & AI Infrastructure** (Metropolis hackathon).
 
 - Contract (Monad testnet, source verified): [`0x431e97E2EB23ac06C9f807cC8DCe54499C1bDC7B`](https://testnet.monadvision.com/address/0x431e97E2EB23ac06C9f807cC8DCe54499C1bDC7B)
-- Live app: https://web-production-95cf9.up.railway.app (Nova at `/`, publisher dashboard at `/dashboard`, advertiser console at `/advertise`)
+- Live app: https://web-production-95cf9.up.railway.app (demo overview at `/`, Nova at `/ai-chat`, publisher dashboard at `/dashboard`, advertiser console at `/advertise`)
 - Indexer (Envio Cloud, GraphQL): https://indexer.dev.hyperindex.xyz/eca926f/v1/graphql
 - Demo video: _link added at submission_
 
@@ -247,7 +247,7 @@ the indexer).
 git clone --recurse-submodules <this repo>   # contracts/lib are git submodules
 pnpm install
 cp .env.example .env.local      # fill in the values; `pnpm env:check` lists what is missing
-pnpm dev                        # http://localhost:3000 — Nova; /dashboard; /advertise; /receipt/<requestId>
+pnpm dev                        # http://localhost:3000 — demo overview; /ai-chat (Nova); /dashboard; /advertise; /receipt/<requestId>
 ```
 
 **With no secrets at all** you can still: run every test suite; `verify` any receipt from the public RPC; and
@@ -322,8 +322,8 @@ Tests: `pnpm test` (receipt, indexer, ops, web; the indexer needs Node ≥ 22.15
 
 ## Demo controls
 
-`/?debug=1` (or Ctrl+Shift+D) opens a debug bar; when `ARIA_DEMO_KEY` is set, as on the live site, only
-`/?debug=<ARIA_DEMO_KEY>` opens it. It has **Forge impression** (an impression posted for a card that was
+`/ai-chat?debug=1` (or Ctrl+Shift+D) opens a debug bar; when `ARIA_DEMO_KEY` is set, as on the live site, only
+`/ai-chat?debug=<ARIA_DEMO_KEY>` opens it (`/?debug=…` redirects there). It has **Forge impression** (an impression posted for a card that was
 never seen, as a dishonest publisher backend could), **Dispute** (the advertiser disputes an event) and
 **Relayer tries to pay** (shows the Privy policy denial). Tick **Hold views** before forging, otherwise the
 card is viewed as soon as it appears; a held card sends its beacon to a sink that records nothing.

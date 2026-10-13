@@ -137,6 +137,16 @@ const CAMPAIGN_QUERY = `query CampaignIndex($id: String!, $limit: Int!, $offset:
   chain_metadata { start_block latest_processed_block }
 }`;
 
+const LATEST_RELEASED_QUERY = `query LatestReleased {
+  ClearingEvent(
+    where: { status: { _eq: "released" } }
+    order_by: [{ settledAt: desc_nulls_last }, { id: asc }]
+    limit: 1
+  ) {
+    requestId
+  }
+}`;
+
 /** Events fetched per request, and the most requests one index read makes. */
 const PAGE_SIZE = 1_000;
 const MAX_PAGES = 20;
@@ -232,6 +242,16 @@ export async function getPublisherStats(address: string): Promise<PublisherStats
   try {
     const data = await query<{ Publisher_by_pk: PublisherRow | null }>(PUBLISHER_QUERY, { id });
     return toPublisherStats(id, data.Publisher_by_pk);
+  } catch {
+    return null;
+  }
+}
+
+/** requestId of the most recently settled released event; null when there is none or the indexer is unreachable. */
+export async function getLatestReleasedRequestId(): Promise<string | null> {
+  try {
+    const data = await query<{ ClearingEvent: { requestId: string }[] }>(LATEST_RELEASED_QUERY, {});
+    return data.ClearingEvent[0]?.requestId ?? null;
   } catch {
     return null;
   }
