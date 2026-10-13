@@ -65,13 +65,13 @@ export default function Landing({
 }) {
   return (
     <main className="min-h-screen bg-[#faf9f6] text-stone-900">
-      <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:py-10">
-        <header className="max-w-3xl space-y-3">
+      <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:py-8">
+        <header className="max-w-4xl space-y-3">
           <p className="flex items-center gap-2 text-sm font-semibold text-stone-700">
             <AriaLogo className="h-6 w-6" />
             Aria Clearing · hackathon demo
           </p>
-          <h1 className="font-serif text-[1.75rem] leading-snug sm:text-[2.1rem]">
+          <h1 className="font-serif text-[1.75rem] leading-snug sm:text-[2rem]">
             Clearing for sponsored AI answers: every sponsored line has a receipt, verified by Chainlink, settled on
             Monad.
           </h1>
@@ -104,7 +104,7 @@ export default function Landing({
           </ul>
         </section>
 
-        <div className="mt-8 grid gap-8 lg:grid-cols-[1.15fr_0.85fr_1fr]">
+        <div className="mt-8 grid gap-8 lg:grid-cols-[1.1fr_1fr_1fr]">
           <section aria-labelledby="start-here">
             <h2 id="start-here" className={HEADING}>
               Start here
@@ -154,11 +154,11 @@ export default function Landing({
             <ul className="mt-3 space-y-2 text-sm">
               {recentReceipt}
               {proofLinks({ contract, envioUrl }).map((link) => (
-                <li key={link.href}>
+                <li key={link.href} className="flex flex-wrap items-baseline gap-x-2">
                   <ExternalLink href={link.href} className={TEXT_LINK}>
                     {link.label}
                   </ExternalLink>
-                  {link.detail && <span className="ml-2 font-mono text-xs text-stone-500">{link.detail}</span>}
+                  {link.detail && <span className="font-mono text-xs text-stone-500">{link.detail}</span>}
                 </li>
               ))}
             </ul>
