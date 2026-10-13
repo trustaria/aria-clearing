@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { ARIA_ICONS } from "../../lib/brand-icons";
 import Dashboard from "../../components/dashboard/Dashboard";
 import { deployment } from "../../lib/deployment";
 
@@ -6,6 +7,7 @@ export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Aria for publishers",
+  icons: ARIA_ICONS,
 };
 
 export default function DashboardPage() {

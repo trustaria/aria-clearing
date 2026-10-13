@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import AutoRefresh from "../../../components/receipt/AutoRefresh";
 import CopyCommand from "../../../components/receipt/CopyCommand";
 import ReceiptDocument from "../../../components/receipt/ReceiptDocument";
+import { ARIA_ICONS } from "../../../lib/brand-icons";
 import { getPublisherStats } from "../../../lib/envio";
 import { addressUrl, shortAddress } from "../../../lib/format";
 import { loadReceipt } from "../load";
@@ -19,7 +20,7 @@ type Props = {
 };
 
 export function generateMetadata({ params }: Props): Metadata {
-  return { title: `Receipt ${safeDecode(params.requestId)}` };
+  return { title: `Receipt ${safeDecode(params.requestId)}`, icons: ARIA_ICONS };
 }
 
 /** Publisher verification rate from the indexer; renders nothing when unavailable. Streams in without blocking the receipt. */
