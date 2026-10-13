@@ -5,10 +5,14 @@ import {
   reduceActions,
   runDispute,
   runEnd,
+  walletDispute,
+  walletEnd,
+  WALLET_DISPUTE_MIN_S,
   type ActionEvent,
   type EndState,
 } from "../components/advertise/campaign/actions";
-import { EndCampaign } from "../components/advertise/campaign/CampaignPanel";
+import { EndCampaign, SentenceItem } from "../components/advertise/campaign/CampaignPanel";
+import type { SentenceRow } from "../components/advertise/campaign/view-model";
 import { createHttpClient, createMockClient, DISPUTE_FAILED, END_FAILED } from "../lib/advertise-client";
 
 function recorder() {
@@ -122,5 +126,113 @@ describe("EndCampaign", () => {
 
   it("is disabled without a handler", () => {
     expect(render({ phase: "idle" })).toContain('disabled=""');
+  });
+});
+
+describe("wallet-signed dispute and end", () => {
+  const EVENT = `0x${"0e".repeat(32)}`;
+  const CAMPAIGN = `0x${"0c".repeat(32)}`;
+  const TX = `0x${"cd".repeat(32)}`;
+
+  it("sends the dispute from the wallet, then reports the transaction", async () => {
+    const send = vi.fn(async () => TX);
+    const report = vi.fn(async () => ({ txHash: TX }));
+    const r = recorder();
+    await runDispute(EVENT, (id) => walletDispute(id, { send, report }), r.dispatch);
+    expect(send).toHaveBeenCalledWith(EVENT);
+    expect(report).toHaveBeenCalledWith(EVENT, TX);
+    expect(r.state().disputes[EVENT]).toEqual({ phase: "sent" });
+  });
+
+  it("shows the dispute failure copy when the wallet send fails", async () => {
+    const report = vi.fn();
+    const r = recorder();
+    const send = vi.fn(async () => {
+      throw new Error("User rejected");
+    });
+    await runDispute(EVENT, (id) => walletDispute(id, { send, report }), r.dispatch);
+    expect(r.state().disputes[EVENT]).toEqual({ phase: "error", message: DISPUTE_FAILED });
+    expect(report).not.toHaveBeenCalled();
+  });
+
+  it("marks ending, withdraws from the wallet, then reports the withdraw", async () => {
+    const calls: string[] = [];
+    const deps = {
+      begin: vi.fn(async () => (calls.push("begin"), { campaignId: CAMPAIGN })),
+      withdraw: vi.fn(async () => (calls.push("withdraw"), TX)),
+      finish: vi.fn(async () => (calls.push("finish"), { refunded: 377, txHash: TX })),
+      cancel: vi.fn(async () => void calls.push("cancel")),
+    };
+    const r = recorder();
+    await runEnd(() => walletEnd(deps), r.dispatch);
+    expect(calls).toEqual(["begin", "withdraw", "finish"]);
+    expect(deps.withdraw).toHaveBeenCalledWith(CAMPAIGN);
+    expect(deps.finish).toHaveBeenCalledWith(TX);
+    expect(r.state().end).toEqual({ phase: "ended", refunded: 377 });
+  });
+
+  it("puts the campaign back to live when the wallet withdraw fails", async () => {
+    const deps = {
+      begin: vi.fn(async () => ({ campaignId: CAMPAIGN })),
+      withdraw: vi.fn(async () => {
+        throw new Error("User rejected");
+      }),
+      finish: vi.fn(),
+      cancel: vi.fn(async () => {}),
+    };
+    expect(await walletEnd(deps)).toEqual({ error: END_FAILED });
+    expect(deps.cancel).toHaveBeenCalled();
+    expect(deps.finish).not.toHaveBeenCalled();
+  });
+
+  it("stops before the wallet when the server refuses to start", async () => {
+    const deps = { begin: vi.fn(async () => ({ error: "Nope." })), withdraw: vi.fn(), finish: vi.fn(), cancel: vi.fn() };
+    expect(await walletEnd(deps)).toEqual({ error: "Nope." });
+    expect(deps.withdraw).not.toHaveBeenCalled();
+  });
+
+  it("posts the wallet dispute and end steps to the routes", async () => {
+    const replies = [{ txHash: TX }, { ending: true, campaignId: CAMPAIGN }, { refunded: 377, txHash: TX }, { status: "live" }];
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify(replies.shift()), { status: 200 }));
+    const client = createHttpClient(async () => "tok", fetchImpl as unknown as typeof fetch);
+    expect(await client.dispute("s", EVENT, TX)).toEqual({ txHash: TX });
+    expect(await client.beginWalletEnd("s")).toEqual({ campaignId: CAMPAIGN });
+    expect(await client.finishWalletEnd("s", TX)).toEqual({ refunded: 377, txHash: TX });
+    await client.cancelWalletEnd("s");
+    const calls = fetchImpl.mock.calls as unknown as [string, RequestInit][];
+    expect(calls.map(([path, init]) => [path, JSON.parse(init.body as string)])).toEqual([
+      ["/api/advertise/campaigns/s/dispute", { eventId: EVENT, txHash: TX }],
+      ["/api/advertise/campaigns/s/end", {}],
+      ["/api/advertise/campaigns/s/end", { txHash: TX }],
+      ["/api/advertise/campaigns/s/end", { cancel: true }],
+    ]);
+  });
+});
+
+describe("dispute button", () => {
+  const row = (disputeSecondsLeft: number): SentenceRow => ({
+    eventId: `0x${"0e".repeat(32)}`,
+    quote: "Crema Works makes compact espresso machines.",
+    meta: "Impression · being verified · $0.01 · 3 s ago",
+    tone: "pending",
+    receiptUrl: "/receipt/r1",
+    disputeSecondsLeft,
+    dispute: null,
+  });
+  const button = (left: number, minLeft?: number) =>
+    renderToStaticMarkup(
+      <ul>
+        <SentenceItem row={row(left)} elapsed={0} onDispute={() => {}} minLeft={minLeft} />
+      </ul>,
+    );
+
+  it("stays enabled to the end of the window for treasury-funded campaigns", () => {
+    expect(button(3)).toMatch(/<button[^>]*class="[^"]*">Dispute \(3 s\)/);
+  });
+
+  it("disables Dispute when fewer than 5 seconds remain for a wallet-funded campaign", () => {
+    expect(button(3, WALLET_DISPUTE_MIN_S)).toMatch(/<button[^>]*disabled=""[^>]*>Dispute \(3 s\)/);
+    expect(button(5, WALLET_DISPUTE_MIN_S)).not.toContain('disabled=""');
+    expect(WALLET_DISPUTE_MIN_S).toBe(5);
   });
 });

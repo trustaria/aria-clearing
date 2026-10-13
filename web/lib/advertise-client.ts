@@ -68,8 +68,15 @@ export type AdvertiseClient = {
   draftFromSite(input: SiteDraftInput): Promise<SiteDraftResult>;
   listCampaigns(): Promise<CampaignsResponse>;
   launch(input: LaunchInput): Promise<LaunchResult>;
-  dispute(slug: string, eventId: string): Promise<DisputeResult>;
+  /** With `txHash`, reports a dispute the advertiser's wallet sent; without, the server sends it. */
+  dispute(slug: string, eventId: string, txHash?: string): Promise<DisputeResult>;
   endCampaign(slug: string): Promise<EndResult>;
+  /** Marks a wallet-funded campaign as ending and returns its campaign id for the wallet's withdraw. */
+  beginWalletEnd(slug: string): Promise<{ campaignId: string } | { error: string }>;
+  /** Reports the wallet's withdraw transaction. */
+  finishWalletEnd(slug: string, txHash: string): Promise<EndResult>;
+  /** Puts an ending wallet-funded campaign back to live after the wallet did not withdraw. */
+  cancelWalletEnd(slug: string): Promise<void>;
   /** Saves a pending wallet-funded campaign and returns the escrow call for the advertiser's wallet. */
   prepare(input: LaunchInput): Promise<PrepareResult>;
   /** Asks the server to check the createCampaign transaction and make the campaign live. */
@@ -141,10 +148,10 @@ export function createHttpClient(getToken: GetToken, fetchImpl: typeof fetch = f
         return { error: "" };
       }
     },
-    async dispute(slug, eventId) {
+    async dispute(slug, eventId, txHash) {
       const path = `/api/advertise/campaigns/${encodeURIComponent(slug)}/dispute`;
       try {
-        const { ok, body } = await call<DisputeResult>(path, { method: "POST", body: { eventId } });
+        const { ok, body } = await call<DisputeResult>(path, { method: "POST", body: { eventId, txHash } });
         if (ok && "txHash" in body) return body;
         return { error: ("error" in body && body.error) || DISPUTE_FAILED };
       } catch {
@@ -160,6 +167,30 @@ export function createHttpClient(getToken: GetToken, fetchImpl: typeof fetch = f
       } catch {
         return { error: END_FAILED };
       }
+    },
+    async beginWalletEnd(slug) {
+      const path = `/api/advertise/campaigns/${encodeURIComponent(slug)}/end`;
+      try {
+        const { ok, body } = await call<{ campaignId?: string; error?: string }>(path, { method: "POST", body: {} });
+        if (ok && typeof body.campaignId === "string") return { campaignId: body.campaignId };
+        return { error: body.error || END_FAILED };
+      } catch {
+        return { error: END_FAILED };
+      }
+    },
+    async finishWalletEnd(slug, txHash) {
+      const path = `/api/advertise/campaigns/${encodeURIComponent(slug)}/end`;
+      try {
+        const { ok, body } = await call<EndResult>(path, { method: "POST", body: { txHash } });
+        if (ok && "refunded" in body) return body;
+        return { error: ("error" in body && body.error) || END_FAILED };
+      } catch {
+        return { error: END_FAILED };
+      }
+    },
+    async cancelWalletEnd(slug) {
+      const path = `/api/advertise/campaigns/${encodeURIComponent(slug)}/end`;
+      await call(path, { method: "POST", body: { cancel: true } }).catch(() => undefined);
     },
     async prepare(input) {
       try {
@@ -268,6 +299,13 @@ export function createMockClient({ delayMs = 800, campaigns = [], maxBudget = 18
       if (campaign) campaign.status = "ended";
       return { refunded: campaign ? campaign.budget - campaign.spent : 0, txHash: `mock-end-${slug}` };
     },
+    async beginWalletEnd() {
+      return { error: END_FAILED };
+    },
+    async finishWalletEnd() {
+      return { error: END_FAILED };
+    },
+    async cancelWalletEnd() {},
     async prepare() {
       await wait(delayMs);
       return { error: "Wallet funding is not available in the mock." };

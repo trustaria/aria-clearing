@@ -1,7 +1,7 @@
 import { ariaClearingAbi, Kind, MAX_LOG_RANGE } from "@aria-clearing/receipt";
 import { createPublicClient, getAbiItem, type Address, type Hex, type PublicClient } from "viem";
 import { monadTestnet } from "viem/chains";
-import type { CampaignStatus, StoredCampaign } from "./campaign-store";
+import { fundingOf, type CampaignFunding, type CampaignStatus, type StoredCampaign } from "./campaign-store";
 import { DISPUTE_WINDOW_S, rpcTransport } from "./chain";
 import { deployment } from "./deployment";
 
@@ -92,6 +92,8 @@ export interface CampaignStatsJson {
   brand: string;
   url: string;
   status: CampaignStatus;
+  /** wallet: the advertiser's wallet signs Dispute and End. */
+  funding?: CampaignFunding;
   claims: string[];
   /** USDC amounts with 6 decimals, as strings. */
   funds: Record<keyof Funds, string>;
@@ -212,6 +214,7 @@ export function toCampaignStatsJson(input: {
     brand: record.advertiser,
     url: record.url,
     status: record.status,
+    funding: fundingOf(record),
     claims: record.claims,
     funds: {
       budget: funds.budget.toString(),

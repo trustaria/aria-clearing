@@ -1,5 +1,8 @@
 import { DISPUTE_FAILED, END_FAILED, type DisputeResult, type EndResult } from "../../../lib/advertise-client";
 
+/** Seconds of dispute window a wallet-signed dispute needs: the wallet prompt and the transaction take time. */
+export const WALLET_DISPUTE_MIN_S = 5;
+
 /** sent: the dispute tx is mined; the verdict comes with the next settlement. */
 export type DisputeState = { phase: "sending" } | { phase: "sent" } | { phase: "error"; message: string };
 
@@ -64,4 +67,40 @@ export async function runEnd(send: () => Promise<EndResult>, dispatch: (event: A
   dispatch({ type: "end-start" });
   const result = await send().catch((): EndResult => ({ error: END_FAILED }));
   dispatch("error" in result ? { type: "end-failed", message: result.error } : { type: "end-done", refunded: result.refunded });
+}
+
+/** Disputes from the advertiser's wallet (`send` resolves once mined), then reports the transaction to the server. */
+export async function walletDispute(
+  eventId: string,
+  deps: { send: (eventId: string) => Promise<string>; report: (eventId: string, txHash: string) => Promise<DisputeResult> },
+): Promise<DisputeResult> {
+  let txHash: string;
+  try {
+    txHash = await deps.send(eventId);
+  } catch {
+    return { error: DISPUTE_FAILED };
+  }
+  return deps.report(eventId, txHash);
+}
+
+/**
+ * Ends a wallet-funded campaign: the server marks it ending, the advertiser's wallet withdraws (resolving once
+ * mined), then the server checks the withdraw. When the wallet does not withdraw, the campaign goes back to live.
+ */
+export async function walletEnd(deps: {
+  begin: () => Promise<{ campaignId: string } | { error: string }>;
+  withdraw: (campaignId: string) => Promise<string>;
+  finish: (txHash: string) => Promise<EndResult>;
+  cancel: () => Promise<void>;
+}): Promise<EndResult> {
+  const started = await deps.begin();
+  if ("error" in started) return started;
+  let txHash: string;
+  try {
+    txHash = await deps.withdraw(started.campaignId);
+  } catch {
+    await deps.cancel().catch(() => undefined);
+    return { error: END_FAILED };
+  }
+  return deps.finish(txHash);
 }

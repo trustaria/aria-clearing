@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import type { DisputeResult, EndResult } from "../../../lib/advertise-client";
 import type { CampaignStatsJson } from "../../../lib/advertiser-data";
 import { Section } from "../../receipt/ReceiptDocument";
-import { NO_ACTIONS, reduceActions, runDispute, runEnd, type EndState } from "./actions";
+import { NO_ACTIONS, reduceActions, runDispute, runEnd, WALLET_DISPUTE_MIN_S, type EndState } from "./actions";
 import { toCampaignView, type CampaignView, type SentenceRow, type StatCard, type Tone } from "./view-model";
 
 const POLL_MS = 3_000;
@@ -65,14 +65,17 @@ function Stats({ view }: { view: CampaignView | null }) {
   );
 }
 
-function SentenceItem({
+/** One sponsored sentence with its Dispute button, disabled once fewer than `minLeft` seconds remain. */
+export function SentenceItem({
   row,
   elapsed,
   onDispute,
+  minLeft = 0,
 }: {
   row: SentenceRow;
   elapsed: number;
   onDispute?: (eventId: string) => void;
+  minLeft?: number;
 }) {
   const left = Math.max(0, Math.floor(row.disputeSecondsLeft - elapsed));
   const sending = row.dispute?.phase === "sending";
@@ -93,7 +96,7 @@ function SentenceItem({
           <button
             type="button"
             className={SMALL_BUTTON}
-            disabled={!onDispute || sending}
+            disabled={!onDispute || sending || left < minLeft}
             onClick={() => onDispute?.(row.eventId)}
           >
             {sending ? "Disputing…" : `Dispute (${left} s)`}
@@ -111,10 +114,12 @@ function Sentences({
   view,
   elapsed,
   onDispute,
+  minLeft,
 }: {
   view: CampaignView | null;
   elapsed: number;
   onDispute?: (eventId: string) => void;
+  minLeft?: number;
 }) {
   return (
     <Section title="Recent sponsored sentences">
@@ -127,7 +132,7 @@ function Sentences({
       ) : (
         <ul className="divide-y divide-stone-100">
           {view.sentences.map((row) => (
-            <SentenceItem key={row.eventId} row={row} elapsed={elapsed} onDispute={onDispute} />
+            <SentenceItem key={row.eventId} row={row} elapsed={elapsed} onDispute={onDispute} minLeft={minLeft} />
           ))}
         </ul>
       )}
@@ -380,7 +385,12 @@ export default function CampaignPanel({
       )}
 
       <Stats view={view} />
-      <Sentences view={view} elapsed={elapsed} onDispute={dispute} />
+      <Sentences
+        view={view}
+        elapsed={elapsed}
+        onDispute={dispute}
+        minLeft={data?.funding === "wallet" ? WALLET_DISPUTE_MIN_S : 0}
+      />
       {view && <Claims claims={view.claims} />}
       {view?.endable && (
         <EndCampaign
