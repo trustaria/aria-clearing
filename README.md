@@ -101,8 +101,9 @@ shows only what was logged.
    20 % of the price, fixed when the contract is deployed (the constructor refuses more than 30 %). The app
    receives the rest, both amounts are in `PaidOut`, and `verify` checks that they add up to the price. Fees
    accrue in the contract; `withdrawFees()` can be called by anyone and always pays Aria's fee address.
-   Aria pays all gas: the app never signs, claims or holds gas tokens. If a transfer ever fails, the amount waits as credit (`PayoutDeferred`) and `claim()` pays
-   it out; that fallback is the one path where the app's account needs gas.
+   Aria pays all gas: the app never signs, claims or holds gas tokens. If a transfer ever fails, the amount
+   waits as credit (`PayoutDeferred`) and `claim()` pays it out; that fallback is the one path where the app's
+   account needs gas.
 
 The wallet that logs events cannot release funds; only a report through the forwarder can, and only after a
 window the contract enforces. The forwarder address itself is set by the contract owner (Aria).
