@@ -17,7 +17,7 @@ type Campaign {
   priceImpression: BigInt!
   priceClick: BigInt!
   budget: BigInt!
-  # Sum of released event prices
+  # Sum of released event prices, gross of the protocol fee
   spent: BigInt!
   # Sum of rejected event prices, returned to the budget
   refunded: BigInt!
@@ -37,6 +37,8 @@ type ClearingEvent {
   # True once the advertiser disputed it, kept after settlement
   wasDisputed: Boolean!
   paid: Boolean!
+  # Protocol fee taken from the price; null until paid or deferred
+  fee: BigInt
   # Block timestamps, seconds
   loggedAt: Int! @index
   loggedTx: String!
@@ -55,10 +57,18 @@ type Publisher {
   disputed: Int!
   released: Int!
   rejected: Int!
-  # USDC (6 decimals) transferred to the publisher: PaidOut plus Claimed
+  # USDC (6 decimals) transferred to the publisher, net of fee: PaidOut plus Claimed
   earned: BigInt!
   # released / (released + rejected + disputed) in basis points; null until an event is settled or disputed
   trustScoreBps: Int
   lastActivityAt: Int!
   events: [ClearingEvent!]! @derivedFrom(field: "publisher")
+}
+
+type Protocol {
+  # Singleton, id "aria"
+  id: ID!
+  # Sum of fees taken from paid and deferred events
+  feesAccrued: BigInt!
+  feesWithdrawn: BigInt!
 }

@@ -1,4 +1,4 @@
-import { indexer, type ClearingEvent, type Publisher } from "envio";
+import { indexer, type ClearingEvent, type Protocol, type Publisher } from "envio";
 import { STATUS_REJECTED, STATUS_RELEASED, emptyPublisher, moveEvent, type Bucket } from "./publisher.js";
 
 const BUCKET: Record<ClearingEvent["status"], Bucket> = {
@@ -13,6 +13,12 @@ async function loadPublisher(
   id: string,
 ): Promise<Publisher> {
   return (await context.Publisher.get(id)) ?? emptyPublisher(id);
+}
+
+const PROTOCOL_ID = "aria";
+
+async function loadProtocol(context: { Protocol: { get: (id: string) => Promise<Protocol | undefined> } }): Promise<Protocol> {
+  return (await context.Protocol.get(PROTOCOL_ID)) ?? { id: PROTOCOL_ID, feesAccrued: 0n, feesWithdrawn: 0n };
 }
 
 indexer.onEvent({ contract: "AriaClearing", event: "CampaignCreated" }, async ({ event, context }) => {
@@ -46,6 +52,7 @@ indexer.onEvent({ contract: "AriaClearing", event: "EventLogged" }, async ({ eve
     status: "logged",
     wasDisputed: false,
     paid: false,
+    fee: undefined,
     loggedAt: at,
     loggedTx: event.transaction.hash,
     settledAt: undefined,
@@ -99,7 +106,11 @@ indexer.onEvent({ contract: "AriaClearing", event: "PaidOut" }, async ({ event, 
   const at = event.block.timestamp;
   const ev = await context.ClearingEvent.get(p.eventId);
   if (ev?.paid) return;
-  if (ev) context.ClearingEvent.set({ ...ev, paid: true, paidTx: event.transaction.hash });
+  if (ev) context.ClearingEvent.set({ ...ev, paid: true, paidTx: event.transaction.hash, fee: p.fee });
+  if (ev?.fee === undefined) {
+    const protocol = await loadProtocol(context);
+    context.Protocol.set({ ...protocol, feesAccrued: protocol.feesAccrued + p.fee });
+  }
 
   const pub = await loadPublisher(context, p.publisher);
   context.Publisher.set({
@@ -110,8 +121,15 @@ indexer.onEvent({ contract: "AriaClearing", event: "PaidOut" }, async ({ event, 
 });
 
 indexer.onEvent({ contract: "AriaClearing", event: "PayoutDeferred" }, async ({ event, context }) => {
-  // The amount becomes claimable credit; `Claimed` adds it to `earned` when transferred.
-  const pub = await loadPublisher(context, event.params.publisher);
+  // The net amount becomes claimable credit; `Claimed` adds it to `earned` when transferred.
+  const p = event.params;
+  const ev = await context.ClearingEvent.get(p.eventId);
+  if (ev?.fee !== undefined) return;
+  if (ev) context.ClearingEvent.set({ ...ev, fee: p.fee });
+  const protocol = await loadProtocol(context);
+  context.Protocol.set({ ...protocol, feesAccrued: protocol.feesAccrued + p.fee });
+
+  const pub = await loadPublisher(context, p.publisher);
   context.Publisher.set({ ...pub, lastActivityAt: Math.max(pub.lastActivityAt, event.block.timestamp) });
 });
 
@@ -128,4 +146,9 @@ indexer.onEvent({ contract: "AriaClearing", event: "Claimed" }, async ({ event, 
 indexer.onEvent({ contract: "AriaClearing", event: "Withdrawn" }, async ({ event, context }) => {
   const campaign = await context.Campaign.get(event.params.campaignId);
   if (campaign) context.Campaign.set({ ...campaign, withdrawn: campaign.withdrawn + event.params.amount });
+});
+
+indexer.onEvent({ contract: "AriaClearing", event: "FeesWithdrawn" }, async ({ event, context }) => {
+  const protocol = await loadProtocol(context);
+  context.Protocol.set({ ...protocol, feesWithdrawn: protocol.feesWithdrawn + event.params.amount });
 });

@@ -11,10 +11,11 @@ contracts:
       - event: EventLogged(bytes32 indexed eventId, bytes32 indexed requestKey, bytes32 indexed campaignId, string requestId, address publisher, uint8 kind, string rationale, bytes32 rationaleHash, uint8[] claimRefs, uint256 price)
       - event: EventDisputed(bytes32 indexed eventId)
       - event: EventSettled(bytes32 indexed eventId, uint8 outcome)
-      - event: PaidOut(bytes32 indexed eventId, address indexed publisher, uint256 amount)
-      - event: PayoutDeferred(bytes32 indexed eventId, address indexed publisher, uint256 amount)
+      - event: PaidOut(bytes32 indexed eventId, address indexed publisher, uint256 amount, uint256 fee)
+      - event: PayoutDeferred(bytes32 indexed eventId, address indexed publisher, uint256 amount, uint256 fee)
       - event: Claimed(address indexed publisher, uint256 amount)
       - event: Withdrawn(bytes32 indexed campaignId, uint256 amount)
+      - event: FeesWithdrawn(address indexed recipient, uint256 amount)
 chains:
   # Monad testnet. `pnpm sync-config` rewrites address and start_block from deployments/10143.json.
   - id: 10143

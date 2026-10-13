@@ -64,14 +64,25 @@ const settled = (n: number, outcome: bigint) =>
     params: { eventId: id(n), outcome },
   }) as const;
 
-const paidOut = (n: number, publisher: string, amount: bigint) =>
+const paidOut = (n: number, publisher: string, amount: bigint, fee = 0n) =>
   ({
     contract: "AriaClearing",
     event: "PaidOut",
     block: at(),
     transaction: { hash: tx(200 + n) },
-    params: { eventId: id(n), publisher, amount },
+    params: { eventId: id(n), publisher, amount, fee },
   }) as const;
+
+const deferred = (n: number, publisher: string, amount: bigint, fee = 0n) =>
+  ({
+    contract: "AriaClearing",
+    event: "PayoutDeferred",
+    block: at(),
+    params: { eventId: id(n), publisher, amount, fee },
+  }) as const;
+
+const feesWithdrawn = (recipient: string, amount: bigint) =>
+  ({ contract: "AriaClearing", event: "FeesWithdrawn", block: at(), params: { recipient, amount } }) as const;
 
 const RELEASED = 3n;
 const REJECTED = 4n;
@@ -194,12 +205,7 @@ describe("AriaClearing handlers", () => {
             campaignCreated(),
             logged(1, PUB_A),
             settled(1, RELEASED),
-            {
-              contract: "AriaClearing",
-              event: "PayoutDeferred",
-              block: at(),
-              params: { eventId: id(1), publisher: PUB_A, amount: 10_000n },
-            },
+            deferred(1, PUB_A, 10_000n),
             { contract: "AriaClearing", event: "Claimed", block: at(), params: { publisher: PUB_A, amount: 10_000n } },
           ],
         },
@@ -208,5 +214,48 @@ describe("AriaClearing handlers", () => {
 
     expect(await indexer.Publisher.getOrThrow(PUB_A)).toMatchObject({ released: 1, earned: 10_000n });
     expect((await indexer.ClearingEvent.getOrThrow(id(1))).paid).toBe(false);
+  });
+
+  it("records the fee on paid and deferred events and tracks protocol totals", async () => {
+    const indexer = createTestIndexer();
+    await indexer.process({
+      chains: {
+        [CHAIN]: {
+          simulate: [
+            campaignCreated(),
+            logged(1, PUB_A),
+            logged(2, PUB_A),
+            logged(3, PUB_A),
+            settled(1, RELEASED),
+            settled(2, RELEASED),
+            settled(3, REJECTED),
+            paidOut(1, PUB_A, 9_000n, 1_000n),
+            deferred(2, PUB_A, 9_000n, 1_000n),
+          ],
+        },
+      },
+    });
+
+    expect(await indexer.ClearingEvent.getOrThrow(id(1))).toMatchObject({ paid: true, fee: 1_000n });
+    expect(await indexer.ClearingEvent.getOrThrow(id(2))).toMatchObject({ paid: false, fee: 1_000n });
+    expect((await indexer.ClearingEvent.getOrThrow(id(3))).fee).toBeUndefined();
+    expect(await indexer.Publisher.getOrThrow(PUB_A)).toMatchObject({ earned: 9_000n });
+    expect(await indexer.Campaign.getOrThrow(CAMPAIGN)).toMatchObject({ spent: 20_000n });
+    expect(await indexer.Protocol.getOrThrow("aria")).toMatchObject({ feesAccrued: 2_000n, feesWithdrawn: 0n });
+
+    await indexer.process({
+      chains: {
+        [CHAIN]: {
+          simulate: [
+            { contract: "AriaClearing", event: "Claimed", block: at(), params: { publisher: PUB_A, amount: 9_000n } },
+            feesWithdrawn(ADVERTISER, 1_500n),
+            paidOut(1, PUB_A, 9_000n, 1_000n),
+          ],
+        },
+      },
+    });
+
+    expect(await indexer.Publisher.getOrThrow(PUB_A)).toMatchObject({ earned: 18_000n });
+    expect(await indexer.Protocol.getOrThrow("aria")).toMatchObject({ feesAccrued: 2_000n, feesWithdrawn: 1_500n });
   });
 });
