@@ -19,7 +19,7 @@ contracts:
 chains:
   # Monad testnet. `pnpm sync-config` rewrites address and start_block from deployments/10143.json.
   - id: 10143
-    start_block: 70478614
+    start_block: 70726907
     contracts:
       - name: AriaClearing
-        address: "0xfb6bA8e6c48c806AFC40aFee5F85deE42Ce8F2fb"
+        address: "0x431e97E2EB23ac06C9f807cC8DCe54499C1bDC7B"

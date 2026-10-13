@@ -1,8 +1,10 @@
 {
-  "address": "0xfb6bA8e6c48c806AFC40aFee5F85deE42Ce8F2fb",
+  "address": "0x431e97E2EB23ac06C9f807cC8DCe54499C1bDC7B",
   "chainId": 10143,
-  "deployBlock": 70478614,
+  "deployBlock": 70726907,
   "disputeWindow": 20,
+  "feeBps": 2000,
+  "feeRecipient": "0xD2D508841C0C99D31C78C03C94338D88Ca19416b",
   "forwarder": "0xB9F79d863261869B234c481D1f9A7af84AeAd192",
   "relayer": "0x6aAD35A0256d5eF914B21dc583142F557c14C11f",
   "usdc": "0x534b2f3A21130d7a60830c2Df862319e593943A3"
