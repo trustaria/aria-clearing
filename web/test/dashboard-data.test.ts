@@ -19,6 +19,7 @@ import {
   type ClearingLog,
   type FeedItem,
 } from "../lib/dashboard-data";
+import { deployment } from "../lib/deployment";
 import { getPublisherIndex, type IndexedEvent, type IndexedStatus, type PublisherIndex } from "../lib/envio";
 import { LIVE_INDEX_RESPONSE, LIVE_PUBLISHER } from "./envio-fixtures";
 
@@ -423,7 +424,7 @@ describe("readFeeBps", () => {
 });
 
 describe("loadDashboard", () => {
-  const HEAD = 70_496_000n;
+  const HEAD = deployment().deployBlock + 17_000n;
 
   function stubRpc() {
     const rpc = {
