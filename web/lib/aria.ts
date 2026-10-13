@@ -1,4 +1,5 @@
 import { createAria, type AriaClient, type ServeResult } from "@trustaria/core";
+import { createAriaEventsHandler } from "@trustaria/react/server";
 import type { Campaign } from "./campaigns";
 import { validatePick, type Pick } from "./pick";
 import { ariaApiKey, ariaPublisherId } from "./serve/auth";
@@ -34,6 +35,16 @@ export function ariaClient(): AriaClient {
     cached = { key, client };
   }
   return cached.client;
+}
+
+let cachedEvents: { key: string; handler: (req: Request) => Promise<Response> } | undefined;
+
+/** Nova's proxy for the card's non-billing events, forwarded to Aria with the publisher key. */
+export function ariaEventsHandler(): (req: Request) => Promise<Response> {
+  const config = { apiKey: ariaApiKey() ?? "", publisherId: ariaPublisherId(), baseUrl: ariaBaseUrl() };
+  const key = JSON.stringify(config);
+  if (cachedEvents?.key !== key) cachedEvents = { key, handler: createAriaEventsHandler(config) };
+  return cachedEvents.handler;
 }
 
 /** The served ad as a pick for Nova's card, re-validated against Nova's own campaign list; null on a no-fill. */
