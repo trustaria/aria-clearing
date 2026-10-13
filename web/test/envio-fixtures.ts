@@ -133,7 +133,7 @@ export const LIVE_INDEX_RESPONSE = {
 
 export const LIVE_CAMPAIGN_ID = LISBON_ID;
 
-/** CampaignIndex response for the Lisbon campaign: live rows from the hosted indexer, with sentences filled in. */
+/** CampaignIndex response for the Lisbon campaign: two live rows from the hosted indexer plus a rejected example, with sentences filled in. */
 export const LIVE_CAMPAIGN_RESPONSE = {
   data: {
     Campaign_by_pk: { id: LISBON_ID },
