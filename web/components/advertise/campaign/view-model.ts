@@ -1,3 +1,4 @@
+import { SOURCES } from "../../../app/dashboard/view-model";
 import type { CampaignStatsJson, RejectReason, SentenceJson, SentenceStatus } from "../../../lib/advertiser-data";
 import type { CampaignStatus } from "../../../lib/campaign-store";
 import { addressUrl, formatDollars, formatPercent, timeAgo, txUrl } from "../../../lib/format";
@@ -32,6 +33,11 @@ export interface CampaignView {
   cards: StatCard[];
   verification: string;
   sentences: SentenceRow[];
+  recent: {
+    /** Scope of the sentences shown next to their title; undefined with no rows. */
+    aside: string | undefined;
+    empty: string;
+  };
   claims: string[];
   remaining: string;
   /** True while the End block is shown: live, or ending from this page. */
@@ -47,6 +53,10 @@ export interface CampaignView {
     clearing: string;
     clearingUrl: string;
     network: string;
+    /** Where counts and sentences were read from. */
+    source: string;
+    blocksLabel: string;
+    blocks: string;
   };
 }
 
@@ -94,6 +104,23 @@ export function sentenceMeta(s: SentenceJson, now: number): string {
   const status = SENTENCE_STATUS[s.status].label;
   const middle = s.status === "rejected" ? `${status} · ${REASONS[s.reason ?? "not_viewed"]}` : `${status} · ${formatDollars(BigInt(s.price))}`;
   return `${s.kind} · ${middle} · ${ago(s.time, now)}`;
+}
+
+/** Sentence scope and empty-state text for the source the data came from. */
+export function recentScope(json: CampaignStatsJson): CampaignView["recent"] {
+  const shown = json.sentences.length;
+  const total = json.counts.impressions + json.counts.clicks + json.counts.rejected;
+  const cut = shown < total ? `Latest ${shown} of ${total.toLocaleString("en-US")}` : null;
+  if (json.source === "logs") {
+    return {
+      aside: !shown ? undefined : cut ? `${cut} in the last 2 hours` : "Last 2 hours",
+      empty: `Nothing in the last 2 hours. When an AI answer recommends ${json.brand}, the sentence shows up here within seconds.`,
+    };
+  }
+  return {
+    aside: !shown ? undefined : (cut ?? "All sentences"),
+    empty: `Nothing yet. When an AI answer recommends ${json.brand}, the sentence shows up here within a minute.`,
+  };
 }
 
 function statusOf(json: CampaignStatsJson, actions: Actions): CampaignStatus {
@@ -156,6 +183,7 @@ export function toCampaignView(json: CampaignStatsJson, now: number, actions: Ac
         dispute,
       };
     }),
+    recent: recentScope(json),
     claims: json.claims,
     remaining,
     endable: status === "live" || (status === "ending" && actions.end.phase === "sending"),
@@ -169,6 +197,9 @@ export function toCampaignView(json: CampaignStatsJson, now: number, actions: Ac
       clearing: json.account.clearing,
       clearingUrl: addressUrl(json.account.clearing),
       network: json.account.network,
+      source: SOURCES[json.source].label,
+      blocksLabel: SOURCES[json.source].blocks,
+      blocks: `${json.fromBlock}–${json.toBlock}`,
     },
   };
 }

@@ -44,6 +44,21 @@ export interface IndexedEvent {
   fee: bigint | null;
 }
 
+/** One of a campaign's events with the sponsored sentence it logged. */
+export interface IndexedSentence {
+  eventId: Hex;
+  requestId: string;
+  kind: "impression" | "click";
+  /** USDC, 6 decimals. */
+  price: bigint;
+  status: IndexedStatus;
+  wasDisputed: boolean;
+  /** Unix seconds. */
+  loggedAt: number;
+  loggedTx: Hex;
+  rationale: string;
+}
+
 /** Publisher_by_pk row as Hasura returns it (BigInt columns as strings). */
 export interface PublisherRow {
   id: string;
@@ -76,6 +91,18 @@ export interface ClearingEventRow {
   fee?: string | null;
 }
 
+export interface CampaignEventRow {
+  id: string;
+  requestId: string;
+  kind: "impression" | "click";
+  price: string;
+  status: IndexedStatus;
+  wasDisputed: boolean;
+  loggedAt: number;
+  loggedTx: string;
+  rationale: string;
+}
+
 const PUBLISHER_QUERY = `query PublisherStats($id: String!) {
   Publisher_by_pk(id: $id) {
     id impressions clicks pending disputed released rejected earned trustScoreBps lastActivityAt
@@ -93,6 +120,19 @@ const INDEX_QUERY = `query PublisherIndex($id: String!, $limit: Int!, $offset: I
     offset: $offset
   ) {
     id requestId campaign_id kind price status wasDisputed paid loggedAt loggedTx settledAt settledTx paidTx fee
+  }
+  chain_metadata { start_block latest_processed_block }
+}`;
+
+const CAMPAIGN_QUERY = `query CampaignIndex($id: String!, $limit: Int!, $offset: Int!) {
+  Campaign_by_pk(id: $id) { id }
+  ClearingEvent(
+    where: { campaign_id: { _eq: $id } }
+    order_by: [{ loggedAt: desc }, { id: asc }]
+    limit: $limit
+    offset: $offset
+  ) {
+    id requestId kind price status wasDisputed loggedAt loggedTx rationale
   }
   chain_metadata { start_block latest_processed_block }
 }`;
@@ -157,6 +197,20 @@ export function toIndexedEvent(row: ClearingEventRow): IndexedEvent {
   };
 }
 
+export function toIndexedSentence(row: CampaignEventRow): IndexedSentence {
+  return {
+    eventId: row.id as Hex,
+    requestId: row.requestId,
+    kind: row.kind,
+    price: BigInt(row.price),
+    status: row.status,
+    wasDisputed: row.wasDisputed,
+    loggedAt: Number(row.loggedAt),
+    loggedTx: row.loggedTx as Hex,
+    rationale: row.rationale,
+  };
+}
+
 async function query<T>(text: string, variables: Record<string, unknown>): Promise<T> {
   const res = await fetch(envioUrl(), {
     method: "POST",
@@ -181,6 +235,19 @@ export async function getPublisherStats(address: string): Promise<PublisherStats
   } catch {
     return null;
   }
+}
+
+/** The first page of `text` for `id` and the rows of every page, stopping at the first short page. */
+async function allPages<P, R>(text: string, id: string, rowsOf: (page: P) => R[]): Promise<{ first: P; rows: R[] }> {
+  const first = await query<P>(text, { id, limit: PAGE_SIZE, offset: 0 });
+  const rows = [...rowsOf(first)];
+  let last = rows.length;
+  for (let page = 1; page < MAX_PAGES && last === PAGE_SIZE; page++) {
+    const next = rowsOf(await query<P>(text, { id, limit: PAGE_SIZE, offset: page * PAGE_SIZE }));
+    rows.push(...next);
+    last = next.length;
+  }
+  return { first, rows };
 }
 
 export interface ChainMetadataRow {
@@ -209,19 +276,53 @@ export async function getPublisherIndex(address: string): Promise<PublisherIndex
   if (!isAddress(address, { strict: false })) return null;
   const id = getAddress(address);
   try {
-    const first = await query<IndexPage>(INDEX_QUERY, { id, limit: PAGE_SIZE, offset: 0 });
-    const rows = [...first.ClearingEvent];
-    let last = first.ClearingEvent.length;
-    for (let page = 1; page < MAX_PAGES && last === PAGE_SIZE; page++) {
-      const next = await query<IndexPage>(INDEX_QUERY, { id, limit: PAGE_SIZE, offset: page * PAGE_SIZE });
-      rows.push(...next.ClearingEvent);
-      last = next.ClearingEvent.length;
-    }
+    const { first, rows } = await allPages<IndexPage, ClearingEventRow>(INDEX_QUERY, id, (p) => p.ClearingEvent);
     const chain = first.chain_metadata[0];
     const fromBlock = Number(chain?.start_block ?? 0);
     return {
       stats: toPublisherStats(id, first.Publisher_by_pk),
       events: rows.map(toIndexedEvent),
+      fromBlock,
+      toBlock: Number(chain?.latest_processed_block ?? fromBlock),
+    };
+  } catch {
+    return null;
+  }
+}
+
+interface CampaignPage {
+  Campaign_by_pk: { id: string } | null;
+  ClearingEvent: CampaignEventRow[];
+  chain_metadata: ChainMetadataRow[];
+}
+
+/** Everything the indexer holds for one campaign. */
+export interface CampaignIndex {
+  /** False until the indexer has processed the campaign's creation. */
+  indexed: boolean;
+  /** All of the campaign's events, newest first. */
+  events: IndexedSentence[];
+  /** First and last block the indexer has processed. */
+  fromBlock: number;
+  toBlock: number;
+}
+
+const BYTES32 = /^0x[0-9a-fA-F]{64}$/;
+
+/**
+ * Every event and sentence of a campaign and the indexed block range, queried by the lowercase id the indexer
+ * stores; null when the indexer is unreachable or answers with an error.
+ */
+export async function getCampaignIndex(campaignId: string): Promise<CampaignIndex | null> {
+  if (!BYTES32.test(campaignId)) return null;
+  const id = campaignId.toLowerCase();
+  try {
+    const { first, rows } = await allPages<CampaignPage, CampaignEventRow>(CAMPAIGN_QUERY, id, (p) => p.ClearingEvent);
+    const chain = first.chain_metadata[0];
+    const fromBlock = Number(chain?.start_block ?? 0);
+    return {
+      indexed: first.Campaign_by_pk !== null,
+      events: rows.map(toIndexedSentence),
       fromBlock,
       toBlock: Number(chain?.latest_processed_block ?? fromBlock),
     };

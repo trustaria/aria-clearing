@@ -3,10 +3,12 @@ import { describe, expect, it } from "vitest";
 import { createTestIndexer, TestHelpers } from "envio";
 
 const CHAIN = 10143;
-const [PUB_A, PUB_B, ADVERTISER] = TestHelpers.Addresses.mockAddresses as [string, string, string];
-const CAMPAIGN = `0x${"c".repeat(64)}`;
-const id = (n: number) => `0x${n.toString(16).padStart(64, "0")}`;
-const tx = (n: number) => `0x${(1000 + n).toString(16).padStart(64, "0")}`;
+type Hex = `0x${string}`;
+
+const [PUB_A, PUB_B, ADVERTISER] = TestHelpers.Addresses.mockAddresses;
+const CAMPAIGN: Hex = `0x${"c".repeat(64)}`;
+const id = (n: number): Hex => `0x${n.toString(16).padStart(64, "0")}`;
+const tx = (n: number): Hex => `0x${(1000 + n).toString(16).padStart(64, "0")}`;
 
 // Simulated events must sit after config.yaml's start_block, or envio drops them.
 const START_BLOCK = Number(/start_block:\s*(\d+)/.exec(readFileSync(new URL("../config.yaml", import.meta.url), "utf8"))![1]);
@@ -32,7 +34,7 @@ const campaignCreated = () =>
     },
   }) as const;
 
-const logged = (n: number, publisher: string, kind = 0n, price = 10_000n) =>
+const logged = (n: number, publisher: Hex, kind = 0n, price = 10_000n) =>
   ({
     contract: "AriaClearing",
     event: "EventLogged",
@@ -45,7 +47,7 @@ const logged = (n: number, publisher: string, kind = 0n, price = 10_000n) =>
       requestId: `req_${n}`,
       publisher,
       kind,
-      rationale: "Because",
+      rationale: `Sentence ${n}.`,
       rationaleHash: id(600 + n),
       claimRefs: [1n],
       price,
@@ -64,7 +66,7 @@ const settled = (n: number, outcome: bigint) =>
     params: { eventId: id(n), outcome },
   }) as const;
 
-const paidOut = (n: number, publisher: string, amount: bigint, fee = 0n) =>
+const paidOut = (n: number, publisher: Hex, amount: bigint, fee = 0n) =>
   ({
     contract: "AriaClearing",
     event: "PaidOut",
@@ -73,7 +75,7 @@ const paidOut = (n: number, publisher: string, amount: bigint, fee = 0n) =>
     params: { eventId: id(n), publisher, amount, fee },
   }) as const;
 
-const deferred = (n: number, publisher: string, amount: bigint, fee = 0n) =>
+const deferred = (n: number, publisher: Hex, amount: bigint, fee = 0n) =>
   ({
     contract: "AriaClearing",
     event: "PayoutDeferred",
@@ -81,7 +83,7 @@ const deferred = (n: number, publisher: string, amount: bigint, fee = 0n) =>
     params: { eventId: id(n), publisher, amount, fee },
   }) as const;
 
-const feesWithdrawn = (recipient: string, amount: bigint) =>
+const feesWithdrawn = (recipient: Hex, amount: bigint) =>
   ({ contract: "AriaClearing", event: "FeesWithdrawn", block: at(), params: { recipient, amount } }) as const;
 
 const RELEASED = 3n;
@@ -113,6 +115,7 @@ describe("AriaClearing handlers", () => {
       status: "logged",
       paid: false,
       loggedTx: tx(2),
+      rationale: "Sentence 2.",
     });
 
     await indexer.process({

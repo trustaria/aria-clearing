@@ -153,7 +153,10 @@ sign in with email, paste your website (**Read my website**: the server fetches 
 private addresses, and KIMI drafts the brand, a description, 3–5 factual claims, a category and topics), approve
 the claims (the exact text that goes onchain), pick a budget and CPC/CPM bids, and launch. Describing the product
 by hand works too. The campaign page shows spend, remaining budget,
-impressions, clicks, CTR, every sponsored sentence with its receipt, Dispute and End campaign.
+impressions, clicks, CTR, rejections by reason, the latest sponsored sentences with their status and receipt,
+Dispute and End campaign. Counts and sentences come from the Envio indexer and cover the campaign's whole history;
+the money comes from contract state. When the indexer is unreachable, or has not yet processed the campaign's
+creation, the page reads the last ~2 hours of contract logs instead and says so.
 
 **Wallet-funded campaigns** (`ADVERTISER_FUNDING=wallet`, the live site). The advertiser's own Privy embedded
 wallet, created at email sign-in, is the onchain advertiser. **Fund and launch** shows the wallet's address and
@@ -197,6 +200,7 @@ graph LR
         Ev --> Relay[Privy server wallet<br/>policy: logEvent only]
         EvAPI[/api/aria/evidence/] --> Ev
         Dash[/dashboard: publisher earnings/]
+        Camp[/advertise/c/:slug: campaign page/]
         Why[/receipt/:requestId/]
     end
     subgraph Monad testnet
@@ -209,6 +213,7 @@ graph LR
     CRE -->|report| F -->|onReport: settle + pay| C
     Envio[Envio HyperIndex] -. indexes .-> C
     Envio -->|totals, activity feed, trust score| Dash
+    Envio -->|counts, sentences, statuses| Camp
     Verify[receipt/ verify] -->|public RPC only| C
 ```
 
@@ -217,7 +222,7 @@ graph LR
 | `contracts/` | `AriaClearing.sol` (escrow, event log, disputes, CRE consumer, payouts), Foundry tests, deploy and seed scripts |
 | `receipt/` | the hash recipe, the ABI, `verifyReceipt()` and the `verify` CLI; depends on viem only |
 | `cre/` | the `aria-settle` Chainlink CRE workflow (TypeScript SDK) with its tests |
-| `indexer/` | Envio HyperIndex: campaigns, event lifecycle and a per-publisher trust score; serves the dashboard's totals, activity feed and trust score |
+| `indexer/` | Envio HyperIndex: campaigns, event lifecycle with each sponsored sentence, and a per-publisher trust score; serves the dashboard's totals, activity feed and trust score, and the campaign page's counts and sentences |
 | `ops/` | Privy server wallets (relayer, advertiser treasury), their policies, probes and `sendFromWallet()` |
 | `web/` | Nova (the reference AI app), Aria's API routes, the receipt page, the publisher dashboard and the advertiser console |
 | `deployments/` | `10143.json`: the live contract address and deploy block |
@@ -226,7 +231,7 @@ graph LR
 
 Monad testnet · Solidity 0.8.28 + Foundry · OpenZeppelin · Chainlink CRE (TypeScript SDK, `cre` CLI) · Privy
 (server wallets, policies, email login with embedded wallets) · Envio HyperIndex (dashboard totals, activity feed,
-trust score) · KIMI (`kimi-k2.6`, Moonshot
+trust score; campaign page counts and sentences) · KIMI (`kimi-k2.6`, Moonshot
 AI) · Next.js 14 + React 18 · viem · USDC.
 
 ## Run it
@@ -266,8 +271,8 @@ cre workflow simulate ./aria-settle -T staging-settings --non-interactive --trig
 The mock forwarder never reverts the outer transaction, so confirm settlement with the contract's
 `EventSettled` / `PaidOut` logs or with `verify`, not with the simulator's status line.
 
-Run the indexer (Envio HyperIndex, Docker; the dashboard's totals, full activity feed and trust score, and the
-trust score on the receipt page):
+Run the indexer (Envio HyperIndex, Docker; the dashboard's totals, full activity feed and trust score, the
+campaign page's full history, and the trust score on the receipt page):
 
 ```bash
 pnpm --filter @aria-clearing/indexer sync-config   # address + start block from deployments/10143.json
@@ -277,7 +282,10 @@ pnpm --filter @aria-clearing/indexer start         # GraphQL on http://localhost
 
 If ports 8080/5433 are taken, set `HASURA_EXTERNAL_PORT`, `ENVIO_PG_PORT` and `HASURA_GRAPHQL_ENDPOINT` before
 starting, and point `ENVIO_GRAPHQL_URL` at the new port. When the indexer is down the dashboard reads totals and
-activity from the last ~2 hours of contract logs instead and hides the trust score.
+activity, and the campaign page its counts and sentences, from the last ~2 hours of contract logs instead; the
+dashboard hides the trust score. Each page names its source under Account details ("Indexed by Envio HyperIndex"
+or "Read from contract logs"). A schema change needs a full resync:
+`pnpm --filter @aria-clearing/indexer resync`.
 
 Deploy your own copy: see `contracts/README.md` (deploy, Sourcify verification, seed) and
 `pnpm --filter @aria-clearing/ops privy:relayer` / `privy:policy` for the relayer.

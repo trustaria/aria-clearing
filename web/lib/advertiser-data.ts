@@ -3,9 +3,11 @@ import { createPublicClient, getAbiItem, type Address, type Hex, type PublicClie
 import { monadTestnet } from "viem/chains";
 import { fundingOf, type CampaignFunding, type CampaignStatus, type StoredCampaign } from "./campaign-store";
 import { DISPUTE_WINDOW_S, rpcTransport } from "./chain";
+import type { DataSource } from "./dashboard-data";
 import { deployment } from "./deployment";
+import { getCampaignIndex, type CampaignIndex, type IndexedSentence } from "./envio";
 
-/** Blocks scanned back from the head (~2 hours on Monad); the funds come from contract state regardless. */
+/** Blocks scanned back from the head (~2 hours on Monad) when reading contract logs. */
 export const SCAN_BLOCKS = 20_000n;
 /** Sentences returned to the campaign page. */
 export const RECENT_LIMIT = 20;
@@ -53,6 +55,9 @@ export interface Sentence {
   blockNumber: bigint;
   txHash: Hex;
 }
+
+/** A sentence with the unix seconds it was logged at; sentences read from logs also carry their block. */
+export type TimedSentence = Omit<Sentence, "blockNumber"> & { time: number; blockNumber?: bigint };
 
 export interface Funds {
   budget: bigint;
@@ -103,7 +108,11 @@ export interface CampaignStatsJson {
   account: { campaignId: string; treasury: string; txHash: string; clearing: string; network: string };
   /** Server time in unix seconds. */
   now: number;
-  scanned: { fromBlock: string; toBlock: string };
+  /** Where counts and sentences were read from. */
+  source: DataSource;
+  /** Blocks indexed (envio) or scanned (logs). */
+  fromBlock: string;
+  toBlock: string;
 }
 
 /** Remaining = available, Pending = reserved, Spent = the rest of the budget after refunds (never negative). */
@@ -160,8 +169,36 @@ export function campaignSentences(logs: CampaignLog[], campaignId: Hex): Sentenc
     });
 }
 
+/**
+ * Sentences from the indexer's events, in the order given. A released event counts as verified whether its payout
+ * was sent or deferred. Pure.
+ */
+export function sentencesFromIndexed(events: IndexedSentence[]): TimedSentence[] {
+  return events.map((event) => {
+    const kind: KindName = event.kind === "click" ? "Click" : "Impression";
+    const status: SentenceStatus =
+      event.status === "released" ? "verified" : event.status === "logged" ? "being_verified" : event.status;
+    return {
+      eventId: event.eventId,
+      requestId: event.requestId,
+      kind,
+      rationale: event.rationale,
+      price: event.price,
+      status,
+      reason: status === "rejected" ? rejectReason(kind, event.wasDisputed) : null,
+      txHash: event.loggedTx,
+      time: event.loggedAt,
+    };
+  });
+}
+
+/** Adds each log-derived sentence's block time, or `now` when the block's time was not read. Pure. */
+export function withBlockTimes(sentences: Sentence[], times: Map<bigint, number>, now: number): TimedSentence[] {
+  return sentences.map((s) => ({ ...s, time: times.get(s.blockNumber) ?? now }));
+}
+
 /** Delivery and verification counts over a campaign's sentences. Pure. */
-export function countsOf(sentences: Sentence[]): Counts {
+export function countsOf(sentences: Pick<Sentence, "kind" | "status" | "reason">[]): Counts {
   const counts: Counts = {
     impressions: 0,
     clicks: 0,
@@ -190,15 +227,15 @@ export function scanWindow(head: bigint, createdBlock: bigint, blocks: bigint): 
   return { fromBlock: createdBlock > floor ? createdBlock : floor, toBlock: head };
 }
 
-/** The campaign page's JSON from the record, contract state and decoded sentences. Pure. */
+/** The campaign page's JSON from the record, contract state and timed sentences. Pure. */
 export function toCampaignStatsJson(input: {
   record: StoredCampaign;
   onchain: { advertiser: string; available: bigint; reserved: bigint };
-  sentences: Sentence[];
-  /** Unix seconds by block number, for the recent sentences. */
-  times: Map<bigint, number>;
+  /** Every sentence, newest first. */
+  sentences: TimedSentence[];
   now: number;
   clearing: string;
+  source: DataSource;
   range: { fromBlock: bigint; toBlock: bigint };
   disputeWindow: number;
 }): CampaignStatsJson {
@@ -225,7 +262,7 @@ export function toCampaignStatsJson(input: {
     },
     counts: countsOf(input.sentences),
     sentences: input.sentences.slice(0, RECENT_LIMIT).map((s) => {
-      const time = input.times.get(s.blockNumber) ?? now;
+      const { time } = s;
       const left = s.status === "being_verified" ? Math.floor(time + input.disputeWindow - now) : 0;
       return {
         eventId: s.eventId,
@@ -247,7 +284,9 @@ export function toCampaignStatsJson(input: {
       network: "Monad testnet",
     },
     now,
-    scanned: { fromBlock: input.range.fromBlock.toString(), toBlock: input.range.toBlock.toString() },
+    source: input.source,
+    fromBlock: input.range.fromBlock.toString(),
+    toBlock: input.range.toBlock.toString(),
   };
 }
 
@@ -357,34 +396,56 @@ async function timesOf(blocks: bigint[], rpc: PublicClient): Promise<Map<bigint,
   return new Map(blocks.map((b) => [b, blockTimes.get(b) ?? 0]));
 }
 
-/** Funds from contract state, counts and recent sentences from the logs since the campaign was created. */
-export async function loadCampaignStats(
-  record: StoredCampaign,
-  rpc: PublicClient = client(),
-): Promise<CampaignStatsJson> {
-  const { clearing, deployBlock } = deployment();
+/** The campaign's sentences from the last SCAN_BLOCKS blocks of contract logs, timed by their blocks. */
+async function sentencesFromLogs(
+  rpc: PublicClient,
+  clearing: Address,
+  campaignId: Hex,
+  created: bigint,
+): Promise<{ sentences: TimedSentence[]; range: { fromBlock: bigint; toBlock: bigint } }> {
   const head = await rpc.getBlockNumber();
-  const created = BigInt(record.createdBlock) > deployBlock ? BigInt(record.createdBlock) : deployBlock;
   const range = scanWindow(head, created, SCAN_BLOCKS);
-
-  const [state, logs] = await Promise.all([
-    rpc.readContract({ address: clearing, abi: ariaClearingAbi, functionName: "campaign", args: [record.campaignId] }),
-    getCampaignLogs(clearing, range, rpc),
-  ]);
-  const sentences = campaignSentences(logs, record.campaignId);
+  const sentences = campaignSentences(await getCampaignLogs(clearing, range, rpc), campaignId);
   const times = await timesOf(
     sentences.slice(0, RECENT_LIMIT).map((s) => s.blockNumber),
     rpc,
   );
+  return { sentences: withBlockTimes(sentences, times, Date.now() / 1000), range };
+}
+
+/**
+ * Funds from contract state; counts and sentences from the Envio indexer since the campaign was created. While the
+ * indexer is unreachable or has not processed the campaign's creation, they are read from the last SCAN_BLOCKS
+ * blocks of contract logs.
+ */
+export async function loadCampaignStats(
+  record: StoredCampaign,
+  rpc: PublicClient = client(),
+  readIndex: (campaignId: string) => Promise<CampaignIndex | null> = getCampaignIndex,
+): Promise<CampaignStatsJson> {
+  const { clearing, deployBlock } = deployment();
+  const created = BigInt(record.createdBlock) > deployBlock ? BigInt(record.createdBlock) : deployBlock;
+
+  const [state, index] = await Promise.all([
+    rpc.readContract({ address: clearing, abi: ariaClearingAbi, functionName: "campaign", args: [record.campaignId] }),
+    readIndex(record.campaignId),
+  ]);
+
+  // An indexed campaign was created inside the indexer's range, so its history starts at `created`.
+  const read = index?.indexed
+    ? {
+        source: "envio" as const,
+        sentences: sentencesFromIndexed(index.events),
+        range: { fromBlock: created, toBlock: BigInt(index.toBlock) },
+      }
+    : { source: "logs" as const, ...(await sentencesFromLogs(rpc, clearing, record.campaignId, created)) };
 
   return toCampaignStatsJson({
     record,
     onchain: { advertiser: state.advertiser, available: state.available, reserved: state.reserved },
-    sentences,
-    times,
+    ...read,
     now: Date.now() / 1000,
     clearing,
-    range,
     disputeWindow: DISPUTE_WINDOW_S,
   });
 }
