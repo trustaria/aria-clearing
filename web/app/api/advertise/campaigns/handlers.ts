@@ -201,7 +201,7 @@ export type CampaignState = { available: bigint; reserved: bigint };
 
 export type Deps = {
   auth: (req: Request) => Promise<Advertiser | Response>;
-  /** Treasury USDC balance, 6 decimals. */
+  /** USDC available to fund launches, 6 decimals: the treasury's, or the test funds source's in wallet mode. */
   balance: () => Promise<bigint>;
   launch: (args: LaunchArgs) => Promise<LaunchResult>;
   save: (record: StoredCampaign) => StoredCampaign;

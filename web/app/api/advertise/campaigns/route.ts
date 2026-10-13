@@ -7,6 +7,7 @@ import { campaignBySlug } from "@/lib/campaigns";
 import { publicClient } from "@/lib/chain";
 import { hasDemoKey } from "@/lib/demo-key";
 import { deployment } from "@/lib/deployment";
+import { testFundsSourceUsdc } from "@/lib/test-funds";
 import { launchCampaign, treasuryUsdcBalance } from "@/lib/treasury";
 import { createCampaignHandlers, fundingModeFromEnv, launchLimitsFromEnv } from "./handlers";
 
@@ -25,7 +26,7 @@ async function campaignState(campaignId: Hex) {
 
 const handlers = createCampaignHandlers({
   auth: (req) => verifyAdvertiser(req),
-  balance: () => treasuryUsdcBalance(),
+  balance: () => (fundingModeFromEnv() === "wallet" ? testFundsSourceUsdc() : treasuryUsdcBalance()),
   launch: (args) => launchCampaign(args),
   save: saveCampaign,
   listByOwner: listCampaignsByOwner,
