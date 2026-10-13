@@ -30,7 +30,7 @@ A receipt binds three things together:
 3. **The money.** The price is reserved from the advertiser's escrow when the event is logged and paid to the
    app when the event is verified.
 
-The card also embeds the receipt in the page, so any extension, crawler or other app can find it:
+Nova also embeds the receipt in the page, beside the card, so any extension, crawler or other app can find it:
 
 ```html
 <script type="application/json" data-aria-receipt>
@@ -199,7 +199,7 @@ graph LR
         Nova[Nova chat + sponsored card<br/>receipt JSON in the page] -->|/api/chat| Kimi[KIMI: answer]
         Nova -->|"@trustaria/core serve()"| Serve[/api/v1/serve: Gemini pick/]
         Serve -->|served record| Ev
-        Nova -->|/api/aria/events, /click| Ev[event store + evidence]
+        Nova -->|"AriaAdCard: /api/v1/beacon, /click"| Ev[event store + evidence]
         Ev --> Relay[Privy server wallet<br/>policy: logEvent only]
         EvAPI[/api/aria/evidence/] --> Ev
         Dash[/dashboard: publisher earnings/]
@@ -227,8 +227,8 @@ graph LR
 | `cre/` | the `aria-settle` Chainlink CRE workflow (TypeScript SDK) with its tests |
 | `indexer/` | Envio HyperIndex: campaigns, event lifecycle with each sponsored sentence, and a per-publisher trust score; serves the dashboard's totals, activity feed and trust score, and the campaign page's counts and sentences |
 | `ops/` | Privy server wallets (relayer, advertiser treasury), their policies, probes and `sendFromWallet()` |
-| `web/` | Nova (the reference AI app, a publisher using `@trustaria/core`), Aria's API routes including the serve API, the receipt page, the publisher dashboard and the advertiser console |
-| `vendor/` | the `@trustaria/core` package tarball the web app installs |
+| `web/` | Nova (the reference AI app, a publisher using `@trustaria/core` and `@trustaria/react`), Aria's API routes including the serve API and the impression beacon, the receipt page, the publisher dashboard and the advertiser console |
+| `vendor/` | the `@trustaria/core` and `@trustaria/react` package tarballs the web app installs |
 | `deployments/` | `10143.json`: the live contract address and deploy block |
 
 ## Technology
@@ -236,7 +236,7 @@ graph LR
 Monad testnet · Solidity 0.8.28 + Foundry · OpenZeppelin · Chainlink CRE (TypeScript SDK, `cre` CLI) · Privy
 (server wallets, policies, email login with embedded wallets) · Envio HyperIndex (dashboard totals, activity feed,
 trust score; campaign page counts and sentences) · KIMI (`kimi-k2.6`, Moonshot
-AI) · Gemini (Flash, through its OpenAI-compatible API) · `@trustaria/core` (Aria's publisher SDK) · Next.js 14 +
+AI) · Gemini (Flash, through its OpenAI-compatible API) · `@trustaria/core` and `@trustaria/react` (Aria's publisher SDK) · Next.js 14 +
 React 18 · viem · USDC.
 
 ## Run it
@@ -265,7 +265,16 @@ of the answer, records the served sentence for the clearing, and answers with th
 re-validates it against the campaign's claims and shows the card after the answer. A no-fill, a timeout (Nova's
 budget is `ARIA_SERVE_TIMEOUT_MS`, default 6 s) or an error only means no card. By default Nova calls its own
 server (`ARIA_BASE_URL` points it elsewhere); set `ARIA_PUBLIC_URL` to the public origin so the ad's click, why and
-beacon URLs are absolute public links.
+beacon URLs are absolute public links (the card follows them as served, so a deployed server needs it).
+
+**The card.** Nova renders the served ad with `@trustaria/react`'s `AriaAdCard` (blockquote style, the whole card
+clickable) and puts the receipt JSON beside it. The impression is measured in the browser: at least 50 % of the
+card visible for one continuous second, with the tab and the "Sponsored" disclosure visible. The card then
+beacons it straight to Aria's `POST /api/v1/beacon` with the ad's signed, single-use impression token (an HMAC
+under `ARIA_TOKEN_SECRET`); Aria checks the token against the served record and logs the impression onchain with
+the measured dwell and visible ratio as its evidence. A billable click is the card's link through Aria's redirect,
+`/api/aria/click/<requestId>`; the card also posts each click to Nova's `/api/aria/card-events`, which forwards it
+to Aria's `POST /api/v1/events` as a signal that is not billed.
 
 **Gemini.** The serve API picks with one Gemini call (`GEMINI_MODEL`, default `gemini-3.6-flash`, minimal
 thinking, JSON output, 4 s timeout): the campaign, 1–2 claim numbers and one sentence built from them. Without
@@ -317,7 +326,7 @@ Tests: `pnpm test` (receipt, indexer, ops, web; the indexer needs Node ≥ 22.15
 `/?debug=1` (or Ctrl+Shift+D) opens a debug bar: **Forge impression** (an impression posted for a card that was
 never seen, as a dishonest publisher backend could), **Dispute** (the advertiser disputes an event) and
 **Relayer tries to pay** (shows the Privy policy denial). Tick **Hold views** before forging, otherwise the
-card is viewed as soon as it appears.
+card is viewed as soon as it appears; a held card sends its beacon to a sink that records nothing.
 
 ## Existing code
 
@@ -326,6 +335,8 @@ card is viewed as soon as it appears.
   (Next.js + Privy embedded wallet on Monad testnet).
 - `@trustaria/core`: Aria's publisher SDK, MIT, © 2026 Evermore Labs Co. Used as a dependency
   (`vendor/trustaria-core-0.3.0-pre.tgz`), not modified here.
+- `@trustaria/react`: Aria's React card for publishers (`AriaAdCard`, the events handler), MIT, © 2026 Evermore
+  Labs Co. Used as a dependency (`vendor/trustaria-react-0.3.0-pre.tgz`), not modified here.
 
 Everything else in this repository was written for this hackathon.
 
