@@ -19,6 +19,8 @@ pragma solidity ^0.8.24;
 /// A disputed event is always refunded, whichever list it appears in.
 /// A released event pays the publisher directly (`PaidOut`); if that transfer fails, the amount
 /// is credited instead (`PayoutDeferred`) and the publisher pulls it with `claim()`.
+/// Fee: only on release, `fee = price * feeBps / 10_000` (rounded down) accrues to `fees`; the publisher
+/// gets `price - fee`. Rejected and disputed events are refunded in full. `withdrawFees()` pays `feeRecipient`.
 interface IAriaClearing {
     enum Kind {
         Impression,
@@ -79,13 +81,17 @@ interface IAriaClearing {
     /// @param outcome Status.Released or Status.Rejected
     event EventSettled(bytes32 indexed eventId, Status outcome);
 
-    event PaidOut(bytes32 indexed eventId, address indexed publisher, uint256 amount);
+    /// @param amount The publisher's net, `price - fee`.
+    event PaidOut(bytes32 indexed eventId, address indexed publisher, uint256 amount, uint256 fee);
 
-    event PayoutDeferred(bytes32 indexed eventId, address indexed publisher, uint256 amount);
+    /// @param amount The publisher's net, credited for `claim()`.
+    event PayoutDeferred(bytes32 indexed eventId, address indexed publisher, uint256 amount, uint256 fee);
 
     event Claimed(address indexed publisher, uint256 amount);
 
     event Withdrawn(bytes32 indexed campaignId, uint256 amount);
+
+    event FeesWithdrawn(address indexed recipient, uint256 amount);
 
     error NotRelayer();
     error NotAdvertiser();
@@ -96,6 +102,9 @@ interface IAriaClearing {
     error InsufficientBudget();
     error NotDisputable();
     error NothingToClaim();
+    error FeeTooHigh();
+    error InvalidFeeRecipient();
+    error NothingToWithdraw();
 
     /// @notice Pulls `amount` USDC from the caller, who becomes the campaign's advertiser.
     function createCampaign(
@@ -125,6 +134,9 @@ interface IAriaClearing {
     /// @notice Advertiser only. Returns the campaign's unreserved budget.
     function withdraw(bytes32 campaignId) external returns (uint256 amount);
 
+    /// @notice Anyone. Transfers all accrued fees to `feeRecipient`.
+    function withdrawFees() external returns (uint256 amount);
+
     /// @notice Events still Logged or Disputed, with their state, in one read.
     function pendingEvents() external view returns (bytes32[] memory ids, ClearingEvent[] memory events);
 
@@ -145,4 +157,12 @@ interface IAriaClearing {
     function disputeWindow() external view returns (uint64);
 
     function lastReportedAt() external view returns (uint64);
+
+    /// @notice Fee on released events, in basis points of the price.
+    function feeBps() external view returns (uint16);
+
+    function feeRecipient() external view returns (address);
+
+    /// @notice Accrued fees not yet withdrawn.
+    function fees() external view returns (uint256);
 }

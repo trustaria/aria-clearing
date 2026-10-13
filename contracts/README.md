@@ -1,8 +1,11 @@
 # contracts
 
 `AriaClearing.sol`: USDC escrow, the onchain event log, disputes and CRE settlement (`onReport`).
-A release transfers the USDC straight to the publisher (`PaidOut`); if that transfer fails it is credited
-instead (`PayoutDeferred`) and the publisher pulls it with `claim()`.
+A release takes Aria's fee, `fee = price * feeBps / 10_000` (rounded down), into `fees` and transfers
+the net `price - fee` straight to the publisher (`PaidOut`); if that transfer fails the net is credited
+instead (`PayoutDeferred`) and the publisher pulls it with `claim()`. Rejected and disputed events are
+refunded to the campaign in full, with no fee. Anyone can call `withdrawFees()`, which pays all accrued
+fees to `feeRecipient`.
 The interface is `src/IAriaClearing.sol`.
 
 > The libraries are git submodules: clone with `git clone --recurse-submodules`, or run
@@ -18,7 +21,8 @@ forge test --gas-report --match-test testGas_
 ## Deploy to Monad testnet (chain 10143)
 
 The deployer needs MON for gas and enough USDC for every campaign in `script/campaigns.json`
-(4 × 4 USDC = 16 USDC). The deployer becomes the contract owner and the advertiser of the seeded campaigns.
+(4 × 4 USDC = 16 USDC). The deployer becomes the contract owner, the fee recipient (`feeBps` 2000, 20 %)
+and the advertiser of the seeded campaigns.
 
 ```bash
 cd contracts
@@ -49,7 +53,7 @@ cast call "$(jq -r .address ../deployments/10143.json)" \
 
 `MONAD_TESTNET_RPC_URL` is `https://testnet-rpc.monad.xyz`.
 
-`deployments/<chainId>.json` holds `{chainId, address, deployBlock, usdc, relayer, forwarder, disputeWindow}`.
+`deployments/<chainId>.json` holds `{chainId, address, deployBlock, usdc, relayer, forwarder, feeBps, feeRecipient, disputeWindow}`.
 It is written only on broadcast. `deployBlock` is the block number when the script ran, a lower bound of
 the inclusion block, so indexers can start from it.
 
@@ -73,8 +77,8 @@ forge script script/Seed.s.sol:Seed --rpc-url $RPC --unlocked --sender $DEPLOYER
 |---|---|
 | `logEvent`, first event of a campaign (150-char rationale, 2 claim refs), full tx | 202,006 |
 | `logEvent`, later events, full tx | 167,806 |
-| `onReport`, 10 releases paid to 10 new publishers, execution | 586,212 |
+| `onReport`, 15 releases paid to 15 new publishers, execution (forge test) | 884,139 |
 | `claim` (after a deferred payout), execution | 63,314 |
 
-Measured on anvil. Monad charges the gas limit, not gas used, and prices cold storage differently,
+Measured on anvil unless marked. Monad charges the gas limit, not gas used, and prices cold storage differently,
 so set the relayer's limit from `cast estimate` against the deployed contract plus a margin.

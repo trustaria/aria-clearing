@@ -9,7 +9,8 @@ import {IReceiver} from "./IReceiver.sol";
 
 /// @title Aria Clearing
 /// @notice Escrows advertiser USDC, logs each sponsored-line event with its receipt data,
-/// and settles events from CRE reports delivered by the forwarder, paying publishers directly.
+/// and settles events from CRE reports delivered by the forwarder, paying publishers directly
+/// and accruing a protocol fee on each released event.
 contract AriaClearing is IAriaClearing, IReceiver {
     using SafeERC20 for IERC20;
 
@@ -21,9 +22,14 @@ contract AriaClearing is IAriaClearing, IReceiver {
     address public immutable usdc;
     address public immutable relayer;
     uint64 public immutable disputeWindow;
+    uint16 public immutable feeBps;
+    address public immutable feeRecipient;
+
+    uint16 internal constant MAX_FEE_BPS = 3000;
 
     address public forwarder;
     uint64 public lastReportedAt;
+    uint256 public fees;
 
     mapping(address publisher => uint256) public credit;
 
@@ -34,12 +40,23 @@ contract AriaClearing is IAriaClearing, IReceiver {
     bytes32[] private _pending;
     mapping(bytes32 eventId => uint256) private _pendingPosition;
 
-    constructor(address usdc_, address relayer_, address forwarder_, uint64 disputeWindow_) {
+    constructor(
+        address usdc_,
+        address relayer_,
+        address forwarder_,
+        uint64 disputeWindow_,
+        uint16 feeBps_,
+        address feeRecipient_
+    ) {
+        if (feeBps_ > MAX_FEE_BPS) revert FeeTooHigh();
+        if (feeRecipient_ == address(0)) revert InvalidFeeRecipient();
         owner = msg.sender;
         usdc = usdc_;
         relayer = relayer_;
         forwarder = forwarder_;
         disputeWindow = disputeWindow_;
+        feeBps = feeBps_;
+        feeRecipient = feeRecipient_;
         emit ForwarderSet(forwarder_);
     }
 
@@ -131,7 +148,7 @@ contract AriaClearing is IAriaClearing, IReceiver {
 
     // ---------- settlement ----------
 
-    /// @notice Forwarder only. Pays released events to their publishers and refunds rejected ones.
+    /// @notice Forwarder only. Pays released events to their publishers net of the fee and refunds rejected ones.
     /// Skips stale reports and ids it cannot settle; never reverts inside the loop.
     function onReport(bytes calldata, bytes calldata report) external {
         if (msg.sender != forwarder) revert NotForwarder();
@@ -154,6 +171,14 @@ contract AriaClearing is IAriaClearing, IReceiver {
         credit[msg.sender] = 0;
         IERC20(usdc).safeTransfer(msg.sender, amount);
         emit Claimed(msg.sender, amount);
+    }
+
+    function withdrawFees() external returns (uint256 amount) {
+        amount = fees;
+        if (amount == 0) revert NothingToWithdraw();
+        fees = 0;
+        IERC20(usdc).safeTransfer(feeRecipient, amount);
+        emit FeesWithdrawn(feeRecipient, amount);
     }
 
     // ---------- owner ----------
@@ -216,13 +241,17 @@ contract AriaClearing is IAriaClearing, IReceiver {
         if (outcome == Status.Released) _payOut(eventId, e.publisher, price);
     }
 
-    /// @dev Transfers to the publisher without reverting; a failed transfer becomes claimable credit.
-    function _payOut(bytes32 eventId, address publisher, uint256 amount) private {
+    /// @dev Accrues the fee and transfers the net to the publisher without reverting;
+    /// a failed transfer becomes claimable credit.
+    function _payOut(bytes32 eventId, address publisher, uint256 price) private {
+        uint256 fee = price * feeBps / 10_000;
+        fees += fee;
+        uint256 amount = price - fee;
         if (IERC20(usdc).trySafeTransfer(publisher, amount)) {
-            emit PaidOut(eventId, publisher, amount);
+            emit PaidOut(eventId, publisher, amount, fee);
         } else {
             credit[publisher] += amount;
-            emit PayoutDeferred(eventId, publisher, amount);
+            emit PayoutDeferred(eventId, publisher, amount, fee);
         }
     }
 

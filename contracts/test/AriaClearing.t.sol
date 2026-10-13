@@ -14,6 +14,10 @@ contract AriaClearingTest is Test {
     uint256 internal constant PRICE_CLICK = 250_000;
     uint256 internal constant BUDGET = 4_000_000;
     uint256 internal constant START = 1_000_000;
+    uint16 internal constant FEE_BPS = 2000;
+    uint256 internal constant FEE_IMPRESSION = 2_000;
+    uint256 internal constant NET_IMPRESSION = 8_000;
+    uint256 internal constant FEE_CLICK = 50_000;
 
     bytes32 internal constant CAMPAIGN = keccak256("lisbon-family-trips");
     string internal constant CLAIMS = "1. Kids under 6 stay free.\n2. Free cancellation up to 48 hours.";
@@ -38,13 +42,14 @@ contract AriaClearingTest is Test {
     address internal advertiser = makeAddr("advertiser");
     address internal publisher = makeAddr("publisher");
     address internal stranger = makeAddr("stranger");
+    address internal feeRecipient = makeAddr("feeRecipient");
 
     bytes internal metadata = new bytes(64);
 
     function setUp() public {
         vm.warp(START);
         usdc = new MockUSDC();
-        clearing = new AriaClearing(address(usdc), relayer, forwarder, WINDOW);
+        clearing = new AriaClearing(address(usdc), relayer, forwarder, WINDOW, FEE_BPS, feeRecipient);
 
         usdc.mint(advertiser, BUDGET * 10);
         vm.startPrank(advertiser);
@@ -118,6 +123,24 @@ contract AriaClearingTest is Test {
         assertEq(clearing.disputeWindow(), WINDOW);
         assertEq(clearing.owner(), address(this));
         assertEq(clearing.lastReportedAt(), 0);
+        assertEq(clearing.feeBps(), FEE_BPS);
+        assertEq(clearing.feeRecipient(), feeRecipient);
+        assertEq(clearing.fees(), 0);
+    }
+
+    function test_constructor_acceptsFeeCap() public {
+        AriaClearing c = new AriaClearing(address(usdc), relayer, forwarder, WINDOW, 3000, feeRecipient);
+        assertEq(c.feeBps(), 3000);
+    }
+
+    function test_constructor_revertsAboveFeeCap() public {
+        vm.expectRevert(IAriaClearing.FeeTooHigh.selector);
+        new AriaClearing(address(usdc), relayer, forwarder, WINDOW, 3001, feeRecipient);
+    }
+
+    function test_constructor_revertsZeroFeeRecipient() public {
+        vm.expectRevert(IAriaClearing.InvalidFeeRecipient.selector);
+        new AriaClearing(address(usdc), relayer, forwarder, WINDOW, FEE_BPS, address(0));
     }
 
     function test_eventIdOf_matchesReceiptLibrary() public view {
@@ -333,13 +356,14 @@ contract AriaClearingTest is Test {
         vm.expectEmit(true, true, true, true, address(clearing));
         emit IAriaClearing.EventSettled(id, IAriaClearing.Status.Released);
         vm.expectEmit(true, true, true, true, address(clearing));
-        emit IAriaClearing.PaidOut(id, publisher, PRICE_IMPRESSION);
+        emit IAriaClearing.PaidOut(id, publisher, NET_IMPRESSION, FEE_IMPRESSION);
         _report(uint64(vm.getBlockTimestamp()), _one(id), _none());
 
         assertEq(uint8(_status(id)), uint8(IAriaClearing.Status.Released));
-        assertEq(usdc.balanceOf(publisher), PRICE_IMPRESSION);
-        assertEq(usdc.balanceOf(address(clearing)), BUDGET - PRICE_IMPRESSION);
+        assertEq(usdc.balanceOf(publisher), NET_IMPRESSION);
+        assertEq(usdc.balanceOf(address(clearing)), BUDGET - NET_IMPRESSION);
         assertEq(clearing.credit(publisher), 0);
+        assertEq(clearing.fees(), FEE_IMPRESSION);
         assertEq(clearing.campaign(CAMPAIGN).reserved, 0);
         assertEq(clearing.campaign(CAMPAIGN).available, BUDGET - PRICE_IMPRESSION);
         assertEq(clearing.lastReportedAt(), vm.getBlockTimestamp());
@@ -357,22 +381,23 @@ contract AriaClearingTest is Test {
         vm.expectEmit(true, true, true, true, address(clearing));
         emit IAriaClearing.EventSettled(id, IAriaClearing.Status.Released);
         vm.expectEmit(true, true, true, true, address(clearing));
-        emit IAriaClearing.PayoutDeferred(id, publisher, PRICE_IMPRESSION);
+        emit IAriaClearing.PayoutDeferred(id, publisher, NET_IMPRESSION, FEE_IMPRESSION);
         _report(uint64(vm.getBlockTimestamp()), _one(id), _none());
 
         assertEq(uint8(_status(id)), uint8(IAriaClearing.Status.Released));
         assertEq(usdc.balanceOf(publisher), 0);
         assertEq(usdc.balanceOf(address(clearing)), BUDGET);
-        assertEq(clearing.credit(publisher), PRICE_IMPRESSION);
+        assertEq(clearing.credit(publisher), NET_IMPRESSION);
+        assertEq(clearing.fees(), FEE_IMPRESSION);
 
         usdc.setTransferFails(publisher, false);
         vm.expectEmit(true, true, true, true, address(clearing));
-        emit IAriaClearing.Claimed(publisher, PRICE_IMPRESSION);
+        emit IAriaClearing.Claimed(publisher, NET_IMPRESSION);
         vm.prank(publisher);
         uint256 amount = clearing.claim();
 
-        assertEq(amount, PRICE_IMPRESSION);
-        assertEq(usdc.balanceOf(publisher), PRICE_IMPRESSION);
+        assertEq(amount, NET_IMPRESSION);
+        assertEq(usdc.balanceOf(publisher), NET_IMPRESSION);
         assertEq(clearing.credit(publisher), 0);
     }
 
@@ -382,11 +407,12 @@ contract AriaClearingTest is Test {
         _afterWindow();
 
         vm.expectEmit(true, true, true, true, address(clearing));
-        emit IAriaClearing.PayoutDeferred(id, address(0), PRICE_IMPRESSION);
+        emit IAriaClearing.PayoutDeferred(id, address(0), NET_IMPRESSION, FEE_IMPRESSION);
         _report(uint64(vm.getBlockTimestamp()), _one(id), _none());
 
         assertEq(uint8(_status(id)), uint8(IAriaClearing.Status.Released));
-        assertEq(clearing.credit(address(0)), PRICE_IMPRESSION);
+        assertEq(clearing.credit(address(0)), NET_IMPRESSION);
+        assertEq(clearing.fees(), FEE_IMPRESSION);
         assertEq(usdc.balanceOf(address(clearing)), BUDGET);
     }
 
@@ -404,9 +430,10 @@ contract AriaClearingTest is Test {
         release[1] = paid;
         _report(uint64(vm.getBlockTimestamp()), release, _one(rejected));
 
-        assertEq(clearing.credit(publisher), PRICE_IMPRESSION);
-        assertEq(usdc.balanceOf(other), PRICE_IMPRESSION);
+        assertEq(clearing.credit(publisher), NET_IMPRESSION);
+        assertEq(usdc.balanceOf(other), NET_IMPRESSION);
         assertEq(clearing.credit(other), 0);
+        assertEq(clearing.fees(), 2 * FEE_IMPRESSION);
         assertEq(uint8(_status(rejected)), uint8(IAriaClearing.Status.Rejected));
         assertEq(clearing.campaign(CAMPAIGN).available, BUDGET - 2 * PRICE_IMPRESSION);
         assertEq(clearing.campaign(CAMPAIGN).reserved, 0);
@@ -424,6 +451,8 @@ contract AriaClearingTest is Test {
         assertEq(clearing.credit(publisher), 0);
         assertEq(clearing.campaign(CAMPAIGN).reserved, 0);
         assertEq(clearing.campaign(CAMPAIGN).available, BUDGET);
+        assertEq(clearing.fees(), 0);
+        assertEq(usdc.balanceOf(address(clearing)), BUDGET);
     }
 
     function test_disputed_isRefundedEvenInReleaseList() public {
@@ -447,6 +476,8 @@ contract AriaClearingTest is Test {
         assertEq(usdc.balanceOf(publisher), 0);
         assertEq(clearing.campaign(CAMPAIGN).available, BUDGET);
         assertEq(clearing.campaign(CAMPAIGN).reserved, 0);
+        assertEq(clearing.fees(), 0);
+        assertEq(usdc.balanceOf(address(clearing)), BUDGET);
     }
 
     function test_insideWindow_isSkippedThenSettlesOnLaterReport() public {
@@ -462,7 +493,7 @@ contract AriaClearingTest is Test {
         vm.warp(START + WINDOW);
         _report(uint64(vm.getBlockTimestamp()), _one(id), _none());
         assertEq(uint8(_status(id)), uint8(IAriaClearing.Status.Released));
-        assertEq(usdc.balanceOf(publisher), PRICE_IMPRESSION);
+        assertEq(usdc.balanceOf(publisher), NET_IMPRESSION);
     }
 
     function test_unknownAndSettledIds_areSkipped() public {
@@ -488,7 +519,8 @@ contract AriaClearingTest is Test {
         assertEq(uint8(_status(settled)), uint8(IAriaClearing.Status.Released));
         assertEq(uint8(_status(fresh)), uint8(IAriaClearing.Status.Released));
         assertEq(uint8(_status(keccak256("unknown"))), uint8(IAriaClearing.Status.None));
-        assertEq(usdc.balanceOf(publisher), 2 * PRICE_IMPRESSION);
+        assertEq(usdc.balanceOf(publisher), 2 * NET_IMPRESSION);
+        assertEq(clearing.fees(), 2 * FEE_IMPRESSION);
         assertEq(clearing.credit(publisher), 0);
         assertEq(clearing.campaign(CAMPAIGN).reserved, 0);
     }
@@ -500,8 +532,9 @@ contract AriaClearingTest is Test {
         _report(uint64(vm.getBlockTimestamp()), _one(id), _one(id));
         assertEq(_settledIds(vm.getRecordedLogs()).length, 1);
         assertEq(uint8(_status(id)), uint8(IAriaClearing.Status.Released));
-        assertEq(usdc.balanceOf(publisher), PRICE_IMPRESSION);
+        assertEq(usdc.balanceOf(publisher), NET_IMPRESSION);
         assertEq(clearing.campaign(CAMPAIGN).available, BUDGET - PRICE_IMPRESSION);
+        assertEq(clearing.fees(), FEE_IMPRESSION);
     }
 
     function test_sameReportTwice_isNoop() public {
@@ -594,6 +627,157 @@ contract AriaClearingTest is Test {
         vm.stopPrank();
     }
 
+    // ---------- fees ----------
+
+    function test_fee_roundsDownInPublishersFavour() public {
+        bytes32 tiny = keccak256("tiny");
+        vm.prank(advertiser);
+        clearing.createCampaign(tiny, CLAIMS, 1, 9, 100);
+        vm.startPrank(relayer);
+        bytes32 one = clearing.logEvent("one", tiny, publisher, IAriaClearing.Kind.Impression, RATIONALE, _refs());
+        bytes32 nine = clearing.logEvent("one", tiny, publisher, IAriaClearing.Kind.Click, RATIONALE, _refs());
+        vm.stopPrank();
+        _afterWindow();
+
+        bytes32[] memory release = new bytes32[](2);
+        release[0] = one;
+        release[1] = nine;
+        vm.expectEmit(true, true, true, true, address(clearing));
+        emit IAriaClearing.PaidOut(one, publisher, 1, 0);
+        vm.expectEmit(true, true, true, true, address(clearing));
+        emit IAriaClearing.PaidOut(nine, publisher, 8, 1);
+        _report(uint64(vm.getBlockTimestamp()), release, _none());
+
+        assertEq(usdc.balanceOf(publisher), 9);
+        assertEq(clearing.fees(), 1);
+    }
+
+    function test_fee_clickSplit() public {
+        bytes32 id = _log(REQUEST, IAriaClearing.Kind.Click);
+        _afterWindow();
+        vm.expectEmit(true, true, true, true, address(clearing));
+        emit IAriaClearing.PaidOut(id, publisher, PRICE_CLICK - FEE_CLICK, FEE_CLICK);
+        _report(uint64(vm.getBlockTimestamp()), _one(id), _none());
+        assertEq(usdc.balanceOf(publisher), PRICE_CLICK - FEE_CLICK);
+        assertEq(clearing.fees(), FEE_CLICK);
+    }
+
+    function test_withdrawFees_anyCallerPaysRecipient() public {
+        bytes32 a = _logImpression("a");
+        bytes32 b = _log("b", IAriaClearing.Kind.Click);
+        _afterWindow();
+        bytes32[] memory release = new bytes32[](2);
+        release[0] = a;
+        release[1] = b;
+        _report(uint64(vm.getBlockTimestamp()), release, _none());
+        uint256 accrued = FEE_IMPRESSION + FEE_CLICK;
+        assertEq(clearing.fees(), accrued);
+
+        vm.expectEmit(true, true, true, true, address(clearing));
+        emit IAriaClearing.FeesWithdrawn(feeRecipient, accrued);
+        vm.prank(stranger);
+        uint256 amount = clearing.withdrawFees();
+
+        assertEq(amount, accrued);
+        assertEq(usdc.balanceOf(feeRecipient), accrued);
+        assertEq(usdc.balanceOf(stranger), 0);
+        assertEq(clearing.fees(), 0);
+
+        vm.prank(feeRecipient);
+        vm.expectRevert(IAriaClearing.NothingToWithdraw.selector);
+        clearing.withdrawFees();
+    }
+
+    function test_withdrawFees_revertsWithNoFees() public {
+        vm.expectRevert(IAriaClearing.NothingToWithdraw.selector);
+        clearing.withdrawFees();
+    }
+
+    function test_accounting_balanceMatchesLiabilities() public {
+        address advertiser2 = makeAddr("advertiser2");
+        address flaky = makeAddr("flaky");
+        bytes32 odd = keccak256("odd-prices");
+        usdc.mint(advertiser2, 1_000_000);
+        vm.startPrank(advertiser2);
+        usdc.approve(address(clearing), type(uint256).max);
+        clearing.createCampaign(odd, CLAIMS, 7, 333, 1_000_000);
+        vm.stopPrank();
+
+        bytes32[] memory campaigns = new bytes32[](2);
+        campaigns[0] = CAMPAIGN;
+        campaigns[1] = odd;
+        address[] memory publishers = new address[](3);
+        publishers[0] = publisher;
+        publishers[1] = flaky;
+        publishers[2] = address(0);
+
+        vm.startPrank(relayer);
+        bytes32 paid = clearing.logEvent("paid", CAMPAIGN, publisher, IAriaClearing.Kind.Click, RATIONALE, _refs());
+        bytes32 deferred = clearing.logEvent("deferred", odd, flaky, IAriaClearing.Kind.Click, RATIONALE, _refs());
+        bytes32 rejected = clearing.logEvent("rejected", odd, publisher, IAriaClearing.Kind.Click, RATIONALE, _refs());
+        bytes32 disputed =
+            clearing.logEvent("disputed", CAMPAIGN, publisher, IAriaClearing.Kind.Impression, RATIONALE, _refs());
+        bytes32 reverting =
+            clearing.logEvent("reverting", odd, address(0), IAriaClearing.Kind.Impression, RATIONALE, _refs());
+        bytes32 pending =
+            clearing.logEvent("pending", odd, publisher, IAriaClearing.Kind.Impression, RATIONALE, _refs());
+        vm.stopPrank();
+        _assertAccounting(campaigns, publishers);
+
+        vm.prank(advertiser);
+        clearing.dispute(disputed);
+        _afterWindow();
+        vm.prank(relayer);
+        bytes32 late = clearing.logEvent("late", odd, publisher, IAriaClearing.Kind.Click, RATIONALE, _refs());
+        usdc.setTransferFails(flaky, true);
+
+        bytes32[] memory release = new bytes32[](5);
+        release[0] = paid;
+        release[1] = deferred;
+        release[2] = disputed;
+        release[3] = reverting;
+        release[4] = late;
+        _report(uint64(vm.getBlockTimestamp()), release, _one(rejected));
+        _assertAccounting(campaigns, publishers);
+        assertEq(uint8(_status(late)), uint8(IAriaClearing.Status.Logged));
+        assertEq(uint8(_status(pending)), uint8(IAriaClearing.Status.Logged));
+        assertGt(clearing.fees(), 0);
+
+        vm.prank(advertiser2);
+        clearing.withdraw(odd);
+        _assertAccounting(campaigns, publishers);
+
+        vm.prank(stranger);
+        clearing.withdrawFees();
+        _assertAccounting(campaigns, publishers);
+
+        usdc.setTransferFails(flaky, false);
+        vm.prank(flaky);
+        clearing.claim();
+        _assertAccounting(campaigns, publishers);
+
+        _afterWindow();
+        bytes32[] memory rest = new bytes32[](2);
+        rest[0] = late;
+        rest[1] = pending;
+        _report(uint64(vm.getBlockTimestamp()), rest, _none());
+        _assertAccounting(campaigns, publishers);
+        assertEq(clearing.fees(), 333 * uint256(FEE_BPS) / 10_000 + 7 * uint256(FEE_BPS) / 10_000);
+    }
+
+    /// @dev usdc held == Σ(available + reserved) + Σ credit + fees.
+    function _assertAccounting(bytes32[] memory campaigns, address[] memory publishers) internal view {
+        uint256 owed = clearing.fees();
+        for (uint256 i; i < campaigns.length; ++i) {
+            IAriaClearing.Campaign memory c = clearing.campaign(campaigns[i]);
+            owed += c.available + c.reserved;
+        }
+        for (uint256 i; i < publishers.length; ++i) {
+            owed += clearing.credit(publishers[i]);
+        }
+        assertEq(usdc.balanceOf(address(clearing)), owed);
+    }
+
     // ---------- forwarder admin ----------
 
     function test_setForwarder_ownerOnly() public {
@@ -636,10 +820,10 @@ contract AriaClearingTest is Test {
         console.log("logEvent gas (first event of a campaign)", g - gasleft());
     }
 
-    function testGas_onReport10() public {
-        bytes32[] memory release = new bytes32[](10);
+    function testGas_onReport15() public {
+        bytes32[] memory release = new bytes32[](15);
         vm.startPrank(relayer);
-        for (uint256 i; i < 10; ++i) {
+        for (uint256 i; i < 15; ++i) {
             address p = address(uint160(0x1000 + i));
             release[i] =
                 clearing.logEvent(vm.toString(i), CAMPAIGN, p, IAriaClearing.Kind.Impression, RATIONALE, _refs());
@@ -650,12 +834,16 @@ contract AriaClearingTest is Test {
         vm.prank(forwarder);
         uint256 g = gasleft();
         clearing.onReport(metadata, report);
-        console.log("onReport gas (10 releases, 10 new publishers)", g - gasleft());
+        uint256 used = g - gasleft();
+        console.log("onReport gas (15 releases, 15 new publishers)", used);
+        // CRE writes with a 1.5M gas limit.
+        assertLt(used, 1_300_000);
         (bytes32[] memory ids,) = clearing.pendingEvents();
         assertEq(ids.length, 0);
-        for (uint256 i; i < 10; ++i) {
-            assertEq(usdc.balanceOf(address(uint160(0x1000 + i))), PRICE_IMPRESSION);
+        for (uint256 i; i < 15; ++i) {
+            assertEq(usdc.balanceOf(address(uint160(0x1000 + i))), NET_IMPRESSION);
         }
+        assertEq(clearing.fees(), 15 * FEE_IMPRESSION);
     }
 
     function testGas_claim() public {

@@ -29,7 +29,9 @@ contract SeedTest is Test {
     function setUp() public {
         json = vm.readFile(string.concat(vm.projectRoot(), "/script/campaigns.json"));
         usdc = new MockUSDC();
-        clearing = new AriaClearing(address(usdc), makeAddr("relayer"), makeAddr("forwarder"), 20);
+        clearing = new AriaClearing(
+            address(usdc), makeAddr("relayer"), makeAddr("forwarder"), 20, 2000, makeAddr("feeRecipient")
+        );
         seeder = new SeedHarness();
         usdc.mint(address(seeder), 100_000_000);
     }
