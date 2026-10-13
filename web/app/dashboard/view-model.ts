@@ -1,5 +1,5 @@
 import type { ActivityStatus, DashboardJson, DataSource, KindName, RejectReason } from "../../lib/dashboard-data";
-import { addressUrl, formatDollars, formatMon, formatPercent, publisherKey, timeAgo } from "../../lib/format";
+import { addressUrl, formatDollars, formatMon, formatPercent, formatShare, publisherKey, timeAgo } from "../../lib/format";
 import type { Tone } from "../receipt/view-model";
 
 export interface CardView {
@@ -20,6 +20,8 @@ export interface FeedRow {
 export interface DashboardView {
   cards: CardView[];
   balance: string;
+  /** The publisher's share of each verified event, e.g. "You keep 80 % of every verified line"; null when unknown. */
+  keepLine: string | null;
   /** Failed payouts waiting for a retry; null when there are none. */
   retryAmount: string | null;
   feed: FeedRow[];
@@ -130,6 +132,12 @@ export function formatRate(bps: number): string {
   return `${Number((bps / 100).toFixed(1))}%`;
 }
 
+/** The publisher's share after Aria's fee, as a plain line; null when the fee is unknown. */
+export function keepLine(feeBps: number | null | undefined): string | null {
+  if (feeBps === null || feeBps === undefined) return null;
+  return `You keep ${formatShare(10_000 - feeBps)} of every verified line`;
+}
+
 /** Overview card for the share of verified ads; null when the rate is unknown. */
 export function verificationCard(bps: number | null | undefined): CardView | null {
   if (bps === null || bps === undefined) return null;
@@ -173,6 +181,7 @@ export function toDashboardView(json: DashboardJson, now: number): DashboardView
       ...(verification ? [verification] : []),
     ],
     balance: formatDollars(BigInt(json.usdc)),
+    keepLine: keepLine(json.feeBps),
     retryAmount: credit > 0n ? formatDollars(credit) : null,
     feed: json.activity.map((item) => ({
       eventId: item.eventId,

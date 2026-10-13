@@ -34,6 +34,11 @@ export function formatPercent(fraction: number | null): string {
   return fraction === null ? "—" : `${(fraction * 100).toFixed(1)}%`;
 }
 
+/** Basis points as a percentage, e.g. 2000 → "20 %", 2050 → "20.5 %". */
+export function formatShare(bps: number): string {
+  return `${Number((bps / 100).toFixed(2))} %`;
+}
+
 /** Masked publisher id shown to developers: a fixed prefix and the address's last four characters. */
 export function publisherKey(address: string): string {
   return `pk_live_••••${address.slice(-4).toLowerCase()}`;

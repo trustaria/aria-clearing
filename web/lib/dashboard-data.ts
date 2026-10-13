@@ -1,4 +1,4 @@
-import { ariaClearingAbi, campaignIdOf, Kind, MAX_LOG_RANGE } from "@aria-clearing/receipt";
+import { ariaClearingAbi, campaignIdOf, feeOf, Kind, MAX_LOG_RANGE } from "@aria-clearing/receipt";
 import {
   createPublicClient,
   erc20Abi,
@@ -54,7 +54,7 @@ export type ClearingLog =
     })
   | (Located & { type: "disputed" })
   | (Located & { type: "settled"; outcome: number })
-  | (Located & { type: "paid" | "deferred"; publisher: Address; amount: bigint });
+  | (Located & { type: "paid" | "deferred"; publisher: Address; amount: bigint; fee: bigint });
 
 /** pending: awaiting verification; deferred: verified but the transfer failed and sits as credit. */
 export type ActivityStatus = "pending" | "disputed" | "paid" | "deferred" | "rejected";
@@ -67,7 +67,7 @@ export interface Activity {
   kind: KindName;
   advertiser: string | null;
   price: bigint;
-  /** Amount sent to the publisher for this event; 0 unless paid or deferred. */
+  /** Amount sent to the publisher for this event, net of the Aria fee; 0 unless paid or deferred. */
   earned: bigint;
   status: ActivityStatus;
   reason: RejectReason | null;
@@ -120,6 +120,8 @@ export interface DashboardJson {
   toBlock: string;
   /** Share of the publisher's events that were verified, in basis points; null when unknown. */
   trustScoreBps?: number | null;
+  /** Aria's fee on each verified event, in basis points of the price; null when unknown. */
+  feeBps: number | null;
 }
 
 /** Advertiser names by onchain campaign id, ended campaigns included. */
@@ -195,7 +197,8 @@ export function activityFrom(
 
 /**
  * Feed rows from the indexer's events, in the order given. A release always emits PaidOut or PayoutDeferred in
- * the same transaction, so a released event that is not paid was deferred to credit. Pure.
+ * the same transaction, so a released event that is not paid was deferred to credit. The publisher earns the price
+ * less the indexed fee, or the full price when the indexer has no fee for the event. Pure.
  */
 export function activityFromIndexed(
   events: IndexedEvent[],
@@ -214,7 +217,7 @@ export function activityFromIndexed(
       kind,
       advertiser: advertisers[event.campaignId.toLowerCase()] ?? null,
       price: event.price,
-      earned: released ? event.price : 0n,
+      earned: released ? event.price - (event.fee ?? 0n) : 0n,
       status,
       reason: status === "rejected" ? rejectReason(kind, event.wasDisputed) : null,
       txHash: event.loggedTx,
@@ -229,8 +232,14 @@ export function withTimes(activity: Activity[], times: [BlockTime, BlockTime]): 
   return activity.map((a) => ({ ...a, time: estimateTime(a.blockNumber, ...times) }));
 }
 
-/** Earnings, pending value, counts and rejection reasons over a publisher's activity. Pure. */
-export function totalsOf(activity: Pick<Activity, "kind" | "status" | "reason" | "price" | "earned">[]): Totals {
+/**
+ * Earnings, pending value, counts and rejection reasons over a publisher's activity. Pending value is net of the
+ * fee when `feeBps` is known. Pure.
+ */
+export function totalsOf(
+  activity: Pick<Activity, "kind" | "status" | "reason" | "price" | "earned">[],
+  feeBps: number | null = null,
+): Totals {
   const totals: Totals = {
     paid: 0n,
     deferred: 0n,
@@ -252,7 +261,7 @@ export function totalsOf(activity: Pick<Activity, "kind" | "status" | "reason" |
     if (item.status === "paid") totals.paid += item.earned;
     else if (item.status === "deferred") totals.deferred += item.earned;
     else {
-      totals.pending += item.price;
+      totals.pending += feeBps === null ? item.price : item.price - feeOf(item.price, feeBps);
       totals.pendingCount += 1;
     }
   }
@@ -293,8 +302,9 @@ export function toDashboardJson(input: {
   range: { fromBlock: bigint; toBlock: bigint };
   source: DataSource;
   trustScoreBps?: number | null;
+  feeBps: number | null;
 }): DashboardJson {
-  const totals = totalsOf(input.activity);
+  const totals = totalsOf(input.activity, input.feeBps);
   return {
     address: input.address,
     clearing: input.clearing,
@@ -317,6 +327,7 @@ export function toDashboardJson(input: {
     fromBlock: input.range.fromBlock.toString(),
     toBlock: input.range.toBlock.toString(),
     trustScoreBps: input.trustScoreBps ?? null,
+    feeBps: input.feeBps,
   };
 }
 
@@ -367,9 +378,9 @@ function toClearingLog(log: RawLog): ClearingLog {
     case "EventSettled":
       return { ...base, type: "settled", outcome: Number(log.args.outcome) };
     case "PaidOut":
-      return { ...base, type: "paid", publisher: log.args.publisher, amount: log.args.amount };
+      return { ...base, type: "paid", publisher: log.args.publisher, amount: log.args.amount, fee: log.args.fee };
     case "PayoutDeferred":
-      return { ...base, type: "deferred", publisher: log.args.publisher, amount: log.args.amount };
+      return { ...base, type: "deferred", publisher: log.args.publisher, amount: log.args.amount, fee: log.args.fee };
   }
 }
 
@@ -406,6 +417,25 @@ export async function getClearingLogs(
   return perChunk.flat().filter((log) => log.blockNumber >= range.fromBlock);
 }
 
+/** Fee rates by contract address. The rate is immutable, so only successful reads are kept. */
+const feeBpsCache = new Map<string, Promise<number | null>>();
+
+/** The contract's fee in basis points, read once per contract; null when the read fails. */
+export function readFeeBps(clearing: Address, rpc: PublicClient = client()): Promise<number | null> {
+  const key = clearing.toLowerCase();
+  const cached = feeBpsCache.get(key);
+  if (cached) return cached;
+  const read = rpc
+    .readContract({ address: clearing, abi: ariaClearingAbi, functionName: "feeBps" })
+    .then(Number)
+    .catch(() => {
+      feeBpsCache.delete(key);
+      return null;
+    });
+  feeBpsCache.set(key, read);
+  return read;
+}
+
 /** The publisher's events from the last SCAN_BLOCKS blocks of contract logs. */
 async function activityFromLogs(
   rpc: PublicClient,
@@ -439,13 +469,14 @@ export async function loadDashboard(
   const publisher = getAddress(address);
   const { clearing, usdc, deployBlock } = deployment();
 
-  const [index, usdcBalance, credit, mon] = await Promise.all([
+  const [index, usdcBalance, credit, mon, feeBps] = await Promise.all([
     readIndex(publisher),
     rpc.readContract({ address: usdc, abi: erc20Abi, functionName: "balanceOf", args: [publisher] }),
     rpc.readContract({ address: clearing, abi: ariaClearingAbi, functionName: "credit", args: [publisher] }),
     rpc.getBalance({ address: publisher }),
+    readFeeBps(clearing, rpc),
   ]);
-  const balances = { address: publisher, clearing, usdc: usdcBalance, credit, mon };
+  const balances = { address: publisher, clearing, usdc: usdcBalance, credit, mon, feeBps };
 
   if (index) {
     return toDashboardJson({

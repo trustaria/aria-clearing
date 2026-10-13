@@ -101,6 +101,7 @@ function json(overrides: Partial<DashboardJson> = {}): DashboardJson {
     source: "logs",
     fromBlock: "1000",
     toBlock: "2000",
+    feeBps: 2000,
     ...overrides,
   };
 }
@@ -139,6 +140,12 @@ describe("toDashboardView", () => {
       },
     ]);
     expect(view.latestReceiptUrl).toBe("/receipt/req%202");
+  });
+
+  it("tells the publisher the share they keep", () => {
+    expect(toDashboardView(json(), NOW).keepLine).toBe("You keep 80 % of every verified line");
+    expect(toDashboardView(json({ feeBps: 0 }), NOW).keepLine).toBe("You keep 100 % of every verified line");
+    expect(toDashboardView(json({ feeBps: null }), NOW).keepLine).toBeNull();
   });
 
   it("offers a retry only when a payout is waiting as credit", () => {

@@ -8,7 +8,9 @@ import {
   alignedChunks,
   estimateTime,
   FEED_LIMIT,
+  getClearingLogs,
   loadDashboard,
+  readFeeBps,
   rejectReason,
   scanRange,
   toDashboardJson,
@@ -53,11 +55,12 @@ const settled = (n: number, outcome: number): ClearingLog => ({
   txHash: H(700 + n),
 });
 const disputed = (n: number): ClearingLog => ({ type: "disputed", eventId: H(n), blockNumber: 1_500n, txHash: H(600 + n) });
-const payout = (n: number, type: "paid" | "deferred", amount: bigint, publisher = ME): ClearingLog => ({
+const payout = (n: number, type: "paid" | "deferred", amount: bigint, fee: bigint, publisher = ME): ClearingLog => ({
   type,
   eventId: H(n),
   publisher: publisher as `0x${string}`,
   amount,
+  fee,
   blockNumber: 2_000n + BigInt(n),
   txHash: H(700 + n),
 });
@@ -75,6 +78,12 @@ const legacyLogs: ClearingLog[] = [
   settled(5, 3),
 ];
 
+/** Each payout's net amount and fee at 20 %. */
+const CLICK_NET = 200_000n;
+const CLICK_FEE = 50_000n;
+const IMPRESSION_NET = 8_000n;
+const IMPRESSION_FEE = 2_000n;
+
 /** New contract: paid out directly, one deferred payout, one disputed then rejected, one click without redirect. */
 const payoutLogs: ClearingLog[] = [
   logged(10, CLICK),
@@ -83,9 +92,9 @@ const payoutLogs: ClearingLog[] = [
   logged(13, CLICK),
   logged(14, IMPRESSION, ME, UNKNOWN_CAMPAIGN),
   settled(10, 3),
-  payout(10, "paid", CLICK_PRICE),
+  payout(10, "paid", CLICK_NET, CLICK_FEE),
   settled(11, 3),
-  payout(11, "deferred", IMPRESSION_PRICE),
+  payout(11, "deferred", IMPRESSION_NET, IMPRESSION_FEE),
   disputed(12),
   settled(12, 4),
   settled(13, 4),
@@ -120,19 +129,19 @@ describe("activityFrom", () => {
     expect(activity[2].settledTx).toBe(H(702));
   });
 
-  it("uses PaidOut and PayoutDeferred amounts and dispute history", () => {
+  it("uses the net PaidOut and PayoutDeferred amounts and dispute history", () => {
     const activity = activityFrom(payoutLogs, ME);
     expect(activity.map((a) => [a.requestId, a.status, a.earned, a.reason, a.advertiser])).toEqual([
       ["req_14", "disputed", 0n, null, null],
       ["req_13", "rejected", 0n, "no_redirect", "Tagus Family Travel"],
       ["req_12", "rejected", 0n, "disputed", "Tagus Family Travel"],
-      ["req_11", "deferred", IMPRESSION_PRICE, null, "Tagus Family Travel"],
-      ["req_10", "paid", CLICK_PRICE, null, "Tagus Family Travel"],
+      ["req_11", "deferred", IMPRESSION_NET, null, "Tagus Family Travel"],
+      ["req_10", "paid", CLICK_NET, null, "Tagus Family Travel"],
     ]);
   });
 
   it("ignores payouts addressed to someone else", () => {
-    const logs = [logged(20, CLICK), settled(20, 3), payout(20, "paid", 1n, OTHER)];
+    const logs = [logged(20, CLICK), settled(20, 3), payout(20, "paid", 1n, 0n, OTHER)];
     expect(activityFrom(logs, ME)[0]).toMatchObject({ status: "paid", earned: CLICK_PRICE });
   });
 });
@@ -153,8 +162,8 @@ describe("totalsOf", () => {
 
   it("keeps deferred payouts apart from paid and counts disputes as pending", () => {
     expect(totalsOf(activityFrom(payoutLogs, ME))).toEqual({
-      paid: CLICK_PRICE,
-      deferred: IMPRESSION_PRICE,
+      paid: CLICK_NET,
+      deferred: IMPRESSION_NET,
       pending: IMPRESSION_PRICE,
       pendingCount: 1,
       impressions: 2,
@@ -162,6 +171,11 @@ describe("totalsOf", () => {
       rejected: 2,
       rejectedBy: { not_viewed: 0, no_redirect: 1, disputed: 1 },
     });
+  });
+
+  it("counts pending value net of the fee when the rate is known", () => {
+    expect(totalsOf(activityFrom(payoutLogs, ME), 2000).pending).toBe(IMPRESSION_NET);
+    expect(totalsOf(activityFrom(payoutLogs, ME), null).pending).toBe(IMPRESSION_PRICE);
   });
 
   it("is all zeros with no activity", () => {
@@ -212,8 +226,10 @@ describe("toDashboardJson", () => {
       activity,
       range: { fromBlock: 1_000n, toBlock: 2_000n },
       source: "logs",
+      feeBps: 2000,
     });
     expect(json).toMatchObject({
+      feeBps: 2000,
       usdc: "260000",
       credit: "0",
       mon: "5",
@@ -249,6 +265,7 @@ function indexed(
     settledAt: settledNow ? 2_000 + n : null,
     settledTx: settledNow ? H(700 + n) : null,
     paidTx: null,
+    fee: null,
     ...extra,
   };
 }
@@ -260,8 +277,8 @@ const parityEvents: IndexedEvent[] = [
   indexed(14, "impression", "disputed", { wasDisputed: true, campaignId: UNKNOWN_CAMPAIGN }),
   indexed(13, "click", "rejected"),
   indexed(12, "impression", "rejected", { wasDisputed: true }),
-  indexed(11, "impression", "released"),
-  indexed(10, "click", "released", { paid: true, paidTx: H(710) }),
+  indexed(11, "impression", "released", { fee: IMPRESSION_FEE }),
+  indexed(10, "click", "released", { paid: true, paidTx: H(710), fee: CLICK_FEE }),
 ];
 
 async function liveIndex(): Promise<PublisherIndex> {
@@ -296,10 +313,20 @@ describe("activityFromIndexed", () => {
   });
 
   it("treats a release without a payout as deferred credit", () => {
-    expect(activityFromIndexed([indexed(11, "impression", "released")])[0]).toMatchObject({
+    expect(activityFromIndexed([indexed(11, "impression", "released", { fee: IMPRESSION_FEE })])[0]).toMatchObject({
       status: "deferred",
-      earned: IMPRESSION_PRICE,
+      earned: IMPRESSION_NET,
     });
+  });
+
+  it("counts the publisher's net, the price less the indexed fee", () => {
+    const [row] = activityFromIndexed([indexed(10, "click", "released", { paid: true, fee: CLICK_FEE })]);
+    expect(row).toMatchObject({ status: "paid", price: CLICK_PRICE, earned: CLICK_NET });
+  });
+
+  it("counts the full price when the indexer has no fee for the event", () => {
+    const [row] = activityFromIndexed([indexed(10, "click", "released", { paid: true, fee: null })]);
+    expect(row.earned).toBe(CLICK_PRICE);
   });
 
   it("agrees with the indexer's own publisher counts on the live fixture", async () => {
@@ -346,6 +373,7 @@ describe("toDashboardJson from the indexer", () => {
       activity: activityFromIndexed(many),
       range: { fromBlock: 10n, toBlock: 20n },
       source: "envio",
+      feeBps: null,
     });
     expect(json.activity).toHaveLength(FEED_LIMIT);
     expect(json.activity[0].requestId).toBe(`req_${count}`);
@@ -353,6 +381,44 @@ describe("toDashboardJson from the indexer", () => {
     expect(json).toMatchObject({ source: "envio", fromBlock: "10", toBlock: "20" });
     expect(json.activity[0]).not.toHaveProperty("blockNumber");
     expect(() => JSON.stringify(json)).not.toThrow();
+  });
+});
+
+describe("getClearingLogs", () => {
+  it("decodes the fee from PaidOut and PayoutDeferred", async () => {
+    const raw = (eventName: string, n: number) => ({
+      eventName,
+      args: { eventId: H(n), publisher: ME, amount: CLICK_NET, fee: CLICK_FEE },
+      blockNumber: 5_000_100n + BigInt(n),
+      transactionHash: H(900 + n),
+    });
+    const rpc = { getLogs: vi.fn(async () => [raw("PaidOut", 1), raw("PayoutDeferred", 2)]) } as unknown as PublicClient;
+    const logs = await getClearingLogs(OTHER, { fromBlock: 5_000_100n, toBlock: 5_000_150n }, rpc);
+    expect(logs).toEqual([
+      { type: "paid", eventId: H(1), publisher: ME, amount: CLICK_NET, fee: CLICK_FEE, blockNumber: 5_000_101n, txHash: H(901) },
+      { type: "deferred", eventId: H(2), publisher: ME, amount: CLICK_NET, fee: CLICK_FEE, blockNumber: 5_000_102n, txHash: H(902) },
+    ]);
+  });
+});
+
+describe("readFeeBps", () => {
+  const CLEARING_A = "0x000000000000000000000000000000000000a001";
+  const CLEARING_B = "0x000000000000000000000000000000000000b001";
+
+  it("reads the contract's fee rate once per contract", async () => {
+    const readContract = vi.fn(async () => 2000);
+    const rpc = { readContract } as unknown as PublicClient;
+    expect(await readFeeBps(CLEARING_A, rpc)).toBe(2000);
+    expect(await readFeeBps(CLEARING_A, rpc)).toBe(2000);
+    expect(readContract).toHaveBeenCalledTimes(1);
+    expect(readContract.mock.calls[0]).toEqual([expect.objectContaining({ address: CLEARING_A, functionName: "feeBps" })]);
+  });
+
+  it("is null when the read fails, and tries again next time", async () => {
+    const readContract = vi.fn().mockRejectedValueOnce(new Error("execution reverted")).mockResolvedValueOnce(2000);
+    const rpc = { readContract } as unknown as PublicClient;
+    expect(await readFeeBps(CLEARING_B, rpc)).toBeNull();
+    expect(await readFeeBps(CLEARING_B, rpc)).toBe(2000);
   });
 });
 
@@ -367,7 +433,7 @@ describe("loadDashboard", () => {
       })),
       getLogs: vi.fn(async () => []),
       readContract: vi.fn(async ({ functionName }: { functionName: string }) =>
-        functionName === "credit" ? 0n : 530_000n,
+        functionName === "credit" ? 0n : functionName === "feeBps" ? 2000 : 530_000n,
       ),
       getBalance: vi.fn(async () => 7n),
     };
@@ -382,7 +448,13 @@ describe("loadDashboard", () => {
     expect(json.totals).toMatchObject({ paid: "530000", impressions: 3, clicks: 2, rejected: 2, pendingCount: 0 });
     expect(json.activity).toHaveLength(7);
     expect(json.activity[0].time).toBe(1791835792);
-    expect(json).toMatchObject({ trustScoreBps: 7143, fromBlock: "70478614", toBlock: "70496822", usdc: "530000" });
+    expect(json).toMatchObject({
+      trustScoreBps: 7143,
+      fromBlock: "70478614",
+      toBlock: "70496822",
+      usdc: "530000",
+      feeBps: 2000,
+    });
     expect(rpc.getLogs).not.toHaveBeenCalled();
     expect(rpc.getBlock).not.toHaveBeenCalled();
   });

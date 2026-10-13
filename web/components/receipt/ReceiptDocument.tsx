@@ -96,6 +96,7 @@ function EventLifecycle({ event }: { event: EventView }) {
         </div>
         <StatusPill tone={event.status.tone} label={event.status.label} />
       </div>
+      {event.split && <p className="-mt-2 mb-4 text-sm text-stone-600">{event.split}</p>}
       <ol className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
         {event.steps.map((step, i) => (
           <Step key={step.key} step={step} last={i === event.steps.length - 1} />
@@ -165,6 +166,7 @@ export default function ReceiptDocument({ view, trust }: { view: ReceiptView; tr
           </blockquote>
           <figcaption className="mt-4 text-sm text-stone-500">
             The sponsored sentence logged on Monad · {view.totalPrice} USDC · {view.status.note}
+            {view.payment && <span className="mt-1 block text-stone-700">{view.payment}</span>}
           </figcaption>
         </figure>
 

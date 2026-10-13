@@ -7,7 +7,7 @@ import {
   type SeenCheck,
 } from "@aria-clearing/receipt";
 import type { PublisherStats } from "../../lib/envio";
-import { addressUrl, formatUsdc, shortHash, txUrl } from "../../lib/format";
+import { addressUrl, formatDollars, formatShare, formatUsdc, shortHash, txUrl } from "../../lib/format";
 
 export type Tone = "pending" | "warn" | "good" | "bad";
 export type CheckState = "pass" | "fail" | "unknown";
@@ -27,7 +27,7 @@ export interface ClaimView {
 }
 
 export interface CheckView {
-  key: "claims" | "sentence" | "eventId" | "contract";
+  key: "claims" | "sentence" | "eventId" | "contract" | "split";
   label: string;
   detail: string;
   state: CheckState;
@@ -45,6 +45,8 @@ export interface EventView {
   eventId: string;
   status: StatusView;
   price: string;
+  /** What the publisher got and Aria's fee for this event; null before a payout. */
+  split: string | null;
   steps: StepView[];
 }
 
@@ -80,6 +82,8 @@ export interface ReceiptView {
   checks: CheckView[];
   status: StatusView;
   totalPrice: string;
+  /** The split summed over the paid events, e.g. "Publisher received $0.008 · Aria fee $0.002 (20 %)"; null when none was paid. */
+  payment: string | null;
   events: EventView[];
   /** Every event is released or rejected, so the receipt no longer changes. */
   final: boolean;
@@ -124,8 +128,34 @@ function checkState(pass: boolean | null): CheckState {
   return pass ? "pass" : "fail";
 }
 
+type Payout = NonNullable<ReceiptEvent["payout"]>;
+
+/** "Publisher received $X · Aria fee $Y (20 %)"; credited instead of received when a transfer failed. */
+function splitLine(payouts: Payout[], feeBps: number | null): string | null {
+  if (payouts.length === 0) return null;
+  const amount = payouts.reduce((sum, p) => sum + p.amount, 0n);
+  const fee = payouts.reduce((sum, p) => sum + p.fee, 0n);
+  const verb = payouts.some((p) => p.deferred) ? "credited" : "received";
+  const rate = feeBps === null ? "" : ` (${formatShare(feeBps)})`;
+  return `Publisher ${verb} ${formatDollars(amount)} · Aria fee ${formatDollars(fee)}${rate}`;
+}
+
+/** The split check, over the events that were paid; null when none was. */
+function splitCheck(receipt: Receipt): CheckView | null {
+  const paid = receipt.events.filter((e) => e.payout);
+  if (paid.length === 0) return null;
+  const rate = receipt.feeBps === null ? "" : `, at the contract's ${formatShare(receipt.feeBps)} fee`;
+  return {
+    key: "split",
+    label: "Payment split",
+    detail: `Publisher amount + Aria fee equals the price${rate}`,
+    state: checkState(paid.every((e) => e.splitMatches)),
+  };
+}
+
 function checksOf(receipt: Receipt): CheckView[] {
   const all = (test: (e: ReceiptEvent) => boolean) => receipt.events.length > 0 && receipt.events.every(test);
+  const split = splitCheck(receipt);
   return [
     {
       key: "claims",
@@ -154,6 +184,7 @@ function checksOf(receipt: Receipt): CheckView[] {
       detail: "The contract's record agrees with the logged event and its claims",
       state: checkState(all((e) => e.viewMatches && e.campaignMatches && e.claimRefsValid)),
     },
+    ...(split ? [split] : []),
   ];
 }
 
@@ -304,11 +335,16 @@ export function toReceiptView(receipt: Receipt, contract: string): ReceiptView {
     status: seen.state === "mismatch" ? MISMATCH : overallStatus(receipt.events),
     lifecycleSummary: lifecycleSummary(receipt.events),
     totalPrice: formatUsdc(total),
+    payment: splitLine(
+      receipt.events.flatMap((e) => (e.payout ? [e.payout] : [])),
+      receipt.feeBps,
+    ),
     events: receipt.events.map((event) => ({
       kind: Kind[event.kind],
       eventId: event.eventId,
       status: statusOfEvent(event),
       price: formatUsdc(event.price),
+      split: splitLine(event.payout ? [event.payout] : [], receipt.feeBps),
       steps: stepsOf(event),
     })),
     final: receipt.events.every((e) => e.status === "released" || e.status === "rejected"),

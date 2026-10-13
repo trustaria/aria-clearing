@@ -4,6 +4,7 @@ import {
   formatDollars,
   formatMon,
   formatPercent,
+  formatShare,
   formatUsdc,
   publisherKey,
   shortAddress,
@@ -84,5 +85,14 @@ describe("explorer links", () => {
   it("points at MonadVision", () => {
     expect(txUrl("0xabc")).toBe("https://testnet.monadvision.com/tx/0xabc");
     expect(addressUrl("0xdef")).toBe("https://testnet.monadvision.com/address/0xdef");
+  });
+});
+
+describe("formatShare", () => {
+  it("shows basis points as a percentage with a space before the sign", () => {
+    expect(formatShare(2000)).toBe("20 %");
+    expect(formatShare(8000)).toBe("80 %");
+    expect(formatShare(2050)).toBe("20.5 %");
+    expect(formatShare(1234)).toBe("12.34 %");
   });
 });

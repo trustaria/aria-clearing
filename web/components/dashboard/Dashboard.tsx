@@ -137,9 +137,12 @@ function Payouts({ view, clearing, onRetried }: { view: DashboardView | null; cl
   return (
     <Section title="Payouts">
       <div className="flex flex-wrap items-end justify-between gap-4">
-        <p className="max-w-sm text-[15px] leading-relaxed text-stone-700">
-          Paid automatically after each event is verified. No action needed.
-        </p>
+        <div className="max-w-sm space-y-1">
+          <p className="text-[15px] leading-relaxed text-stone-700">
+            Paid automatically after each event is verified. No action needed.
+          </p>
+          {view?.keepLine && <p className="text-sm text-stone-500">{view.keepLine}</p>}
+        </div>
         <div className="text-right">
           <p className="text-xs font-medium uppercase tracking-wider text-stone-500">Balance</p>
           <p className="text-2xl font-semibold tracking-tight tabular-nums text-stone-900">{view ? view.balance : "…"}</p>

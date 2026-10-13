@@ -14,7 +14,7 @@ export interface PublisherStats {
   disputed: number;
   released: number;
   rejected: number;
-  /** USDC transferred to the publisher, 6 decimals. */
+  /** USDC transferred to the publisher, net of the Aria fee, 6 decimals. */
   earned: bigint;
   /** released / (released + rejected + disputed) in basis points; null before any event is settled or disputed. */
   trustScoreBps: number | null;
@@ -40,6 +40,8 @@ export interface IndexedEvent {
   settledAt: number | null;
   settledTx: Hex | null;
   paidTx: Hex | null;
+  /** Aria fee taken from the price on release; null before release or when the indexer does not record it. */
+  fee: bigint | null;
 }
 
 /** Publisher_by_pk row as Hasura returns it (BigInt columns as strings). */
@@ -70,6 +72,8 @@ export interface ClearingEventRow {
   settledAt: number | null;
   settledTx: string | null;
   paidTx: string | null;
+  /** Absent on an indexer without the fee column. */
+  fee?: string | null;
 }
 
 const PUBLISHER_QUERY = `query PublisherStats($id: String!) {
@@ -88,7 +92,7 @@ const INDEX_QUERY = `query PublisherIndex($id: String!, $limit: Int!, $offset: I
     limit: $limit
     offset: $offset
   ) {
-    id requestId campaign_id kind price status wasDisputed paid loggedAt loggedTx settledAt settledTx paidTx
+    id requestId campaign_id kind price status wasDisputed paid loggedAt loggedTx settledAt settledTx paidTx fee
   }
   chain_metadata { start_block latest_processed_block }
 }`;
@@ -149,6 +153,7 @@ export function toIndexedEvent(row: ClearingEventRow): IndexedEvent {
     settledAt: row.settledAt === null ? null : Number(row.settledAt),
     settledTx: row.settledTx as Hex | null,
     paidTx: row.paidTx as Hex | null,
+    fee: row.fee === null || row.fee === undefined ? null : BigInt(row.fee),
   };
 }
 

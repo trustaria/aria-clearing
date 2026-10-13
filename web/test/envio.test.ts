@@ -111,7 +111,15 @@ describe("response mapping", () => {
       settledAt: 1791831679,
       settledTx: "0x8752072a4b9673b64129af9c97859329f9f9cab1dc8b6d91afb02370da6647df",
       paidTx: null,
+      fee: null,
     });
+  });
+
+  it("reads the event's fee, and null when the indexer has none", () => {
+    const row = EVENTS_RESPONSE.data.ClearingEvent[0];
+    expect(toIndexedEvent({ ...row, fee: "50000" }).fee).toBe(50_000n);
+    expect(toIndexedEvent({ ...row, fee: null }).fee).toBeNull();
+    expect(toIndexedEvent(row).fee).toBeNull();
   });
 });
 
@@ -166,6 +174,16 @@ describe("getPublisherIndex", () => {
       limit: 1000,
       offset: 0,
     });
+  });
+
+  it("asks for each event's fee", async () => {
+    const fetchMock = respondWith(LIVE_INDEX_RESPONSE);
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getPublisherIndex(LIVE_PUBLISHER);
+
+    const { query } = JSON.parse(String(fetchMock.mock.calls[0]![1]?.body));
+    expect(query).toMatch(/ClearingEvent\([\s\S]*\bfee\b/);
   });
 
   it("pages until a short page", async () => {

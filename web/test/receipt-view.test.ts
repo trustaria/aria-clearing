@@ -133,6 +133,65 @@ describe("toReceiptView", () => {
     expect(view.totalPrice).toBe("0.06");
   });
 
+  describe("payment split", () => {
+    const paid = (amount: bigint, fee: bigint, deferred = false) => ({ amount, fee, deferred, txHash: TX(2) });
+
+    it("shows what the publisher received and the Aria fee at the contract's rate", () => {
+      const view = toReceiptView(receipt({ feeBps: 2000 }, [event({ payout: paid(8_000n, 2_000n) })]), CONTRACT);
+      expect(view.payment).toBe("Publisher received $0.008 · Aria fee $0.002 (20 %)");
+      expect(view.events[0].split).toBe("Publisher received $0.008 · Aria fee $0.002 (20 %)");
+      expect(view.checks.find((c) => c.key === "split")).toEqual({
+        key: "split",
+        label: "Payment split",
+        detail: "Publisher amount + Aria fee equals the price, at the contract's 20 % fee",
+        state: "pass",
+      });
+    });
+
+    it("sums the split over the receipt's events", () => {
+      const view = toReceiptView(
+        receipt({ feeBps: 2000 }, [
+          event({ payout: paid(8_000n, 2_000n) }),
+          event({ kind: Kind.Click, eventId: TX(101), price: 250_000n, payout: paid(200_000n, 50_000n) }),
+        ]),
+        CONTRACT,
+      );
+      expect(view.payment).toBe("Publisher received $0.208 · Aria fee $0.052 (20 %)");
+    });
+
+    it("says credited when the transfer failed and waits for a claim", () => {
+      const view = toReceiptView(receipt({ feeBps: 2000 }, [event({ payout: paid(8_000n, 2_000n, true) })]), CONTRACT);
+      expect(view.payment).toBe("Publisher credited $0.008 · Aria fee $0.002 (20 %)");
+    });
+
+    it("leaves the rate out when the contract's fee could not be read", () => {
+      const view = toReceiptView(receipt({}, [event({ payout: paid(8_000n, 2_000n) })]), CONTRACT);
+      expect(view.payment).toBe("Publisher received $0.008 · Aria fee $0.002");
+      expect(view.checks.find((c) => c.key === "split")!.detail).toBe("Publisher amount + Aria fee equals the price");
+    });
+
+    it("fails the split check when the payout does not add up", () => {
+      const view = toReceiptView(
+        receipt({ ok: false, consistent: false, feeBps: 2000 }, [event({ payout: paid(9_000n, 2_000n), splitMatches: false })]),
+        CONTRACT,
+      );
+      expect(view.checks.find((c) => c.key === "split")!.state).toBe("fail");
+    });
+
+    it("has no split before a payout", () => {
+      const view = toReceiptView(receipt({}, [event({ status: "logged", settledTx: undefined })]), CONTRACT);
+      expect(view.payment).toBeNull();
+      expect(view.events[0].split).toBeNull();
+      expect(view.checks.map((c) => c.key)).not.toContain("split");
+    });
+
+    it("renders the split on the page", () => {
+      const view = toReceiptView(receipt({ feeBps: 2000 }, [event({ payout: paid(8_000n, 2_000n) })]), CONTRACT);
+      const html = renderToStaticMarkup(createElement(ReceiptDocument, { view }));
+      expect(html).toContain("Publisher received $0.008 · Aria fee $0.002 (20 %)");
+    });
+  });
+
   it("walks a released event through issued, logged and verified with tx links", () => {
     const [released] = toReceiptView(receipt(), CONTRACT).events;
     expect(released.status.label).toBe("Verified");
