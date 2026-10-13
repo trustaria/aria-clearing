@@ -1,15 +1,16 @@
 "use client";
 
+import type { AdPayload } from "@trustaria/react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { ChatFrame, ChatMessage, ModelName } from "../lib/kimi";
 import type { CardData } from "../lib/receipt";
-import AdCard from "./AdCard";
+import SponsoredCard from "./SponsoredCard";
 import DebugBar from "./DebugBar";
 
 type Turn = {
   role: "user" | "assistant";
   content: string;
-  card?: CardData;
+  served?: { card: CardData; ad: AdPayload };
   notice?: string;
   error?: string;
   pending?: boolean;
@@ -87,7 +88,7 @@ export default function Chat({
         } else if (frame.type === "text") {
           updateLast((t) => ({ ...t, content: t.content + frame.delta }));
         } else if (frame.type === "card") {
-          updateLast((t) => ({ ...t, card: frame.card }));
+          updateLast((t) => ({ ...t, served: { card: frame.card, ad: frame.ad } }));
         } else if (frame.type === "notice") {
           updateLast((t) => ({ ...t, notice: frame.message }));
         } else if (frame.type === "error") {
@@ -149,14 +150,14 @@ export default function Chat({
                 <div className="max-w-[85%] rounded-2xl bg-neutral-100 px-4 py-2 dark:bg-neutral-800">{turn.content}</div>
               </div>
             ) : (
-              <div key={i} data-request-id={turn.card?.requestId}>
+              <div key={i} data-request-id={turn.served?.card.requestId}>
                 {turn.notice && <p className="mb-1 text-xs text-amber-700 dark:text-amber-400">{turn.notice}</p>}
                 <div className="whitespace-pre-wrap leading-relaxed">
                   {turn.content}
                   {turn.pending && !turn.content && <span className="text-neutral-400">Thinking…</span>}
                 </div>
                 {turn.error && <p className="mt-2 text-sm text-red-600">{turn.error}</p>}
-                {turn.card && !turn.error && <AdCard card={turn.card} />}
+                {turn.served && !turn.error && <SponsoredCard ad={turn.served.ad} receipt={turn.served.card.receipt} />}
               </div>
             ),
           )}

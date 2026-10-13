@@ -8,12 +8,13 @@ export const INTEGRATION_SNIPPET = `const res = await fetch("/api/chat", {
   method: "POST",
   body: JSON.stringify({ messages }),
 });
-// The answer streams as NDJSON; a "card" frame carries the ad
+// The answer streams as NDJSON; a "card" frame carries the served ad
 await readFrames(res, (frame) => {
   if (frame.type === "text") appendAnswer(frame.delta);
-  if (frame.type === "card") setCard(frame.card);
+  if (frame.type === "card") setAd(frame.ad);
 });
-{card && <AdCard card={card} />} // reports the view, routes the click`;
+// Beacons the view to Aria; the click goes through Aria's redirect
+{ad && <AriaAdCard ad={ad} appearance="blockquote" clickArea="card" />}`;
 
 export default function IntegrationPanel({ publisherId }: { publisherId: string | null }) {
   const [copied, setCopied] = useState(false);
@@ -57,8 +58,9 @@ export default function IntegrationPanel({ publisherId }: { publisherId: string 
           </pre>
         </div>
         <p className="text-xs leading-relaxed text-stone-500">
-          <span className="font-mono">/api/chat</span> answers and picks the ad; <span className="font-mono">AdCard</span>{" "}
-          renders it with its receipt. Both live in this repo.
+          <span className="font-mono">/api/chat</span> answers and asks Aria for the ad;{" "}
+          <span className="font-mono">AriaAdCard</span> from <span className="font-mono">@trustaria/react</span> renders
+          it, and Nova adds its receipt beside it.
         </p>
       </div>
     </Section>
