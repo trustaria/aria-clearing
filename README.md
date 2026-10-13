@@ -11,7 +11,7 @@ Track: **Trust, Identity & AI Infrastructure** (Metropolis hackathon).
 
 - Contract (Monad testnet, source verified): [`0x431e97E2EB23ac06C9f807cC8DCe54499C1bDC7B`](https://testnet.monadvision.com/address/0x431e97E2EB23ac06C9f807cC8DCe54499C1bDC7B)
 - Live app: https://web-production-95cf9.up.railway.app (Nova at `/`, publisher dashboard at `/dashboard`, advertiser console at `/advertise`)
-- Indexer (Envio Cloud, GraphQL): https://indexer.dev.hyperindex.xyz/4e14013/v1/graphql
+- Indexer (Envio Cloud, GraphQL): https://indexer.dev.hyperindex.xyz/eca926f/v1/graphql
 - Demo video: _link added at submission_
 
 ## The receipt
@@ -97,7 +97,7 @@ shows only what was logged.
    enough for the advertiser's fraud tooling to review events, and still far faster than ad-network payment terms.
 4. **Verification.** A **Chainlink CRE workflow** reads all pending events in one call, fetches their evidence in
    one HTTP request, applies the rule (impression: viewed ≥ 1 s at ≥ 50 %; click: went through the redirect),
-   and writes one report through the Chainlink forwarder to `onReport`.
+   and writes one report through the CRE forwarder (the mock forwarder on Monad testnet) to `onReport`.
 5. **Payout.** In the same transaction, released events pay the app's account directly (`PaidOut`); rejected
    and disputed events return to the advertiser's budget. Aria's fee is taken only here, on verified events:
    20 % of the price, fixed when the contract is deployed (the constructor refuses more than 30 %). The app
@@ -322,7 +322,8 @@ Tests: `pnpm test` (receipt, indexer, ops, web; the indexer needs Node ≥ 22.15
 
 ## Demo controls
 
-`/?debug=1` (or Ctrl+Shift+D) opens a debug bar: **Forge impression** (an impression posted for a card that was
+`/?debug=1` (or Ctrl+Shift+D) opens a debug bar; when `ARIA_DEMO_KEY` is set, as on the live site, only
+`/?debug=<ARIA_DEMO_KEY>` opens it. It has **Forge impression** (an impression posted for a card that was
 never seen, as a dishonest publisher backend could), **Dispute** (the advertiser disputes an event) and
 **Relayer tries to pay** (shows the Privy policy denial). Tick **Hold views** before forging, otherwise the
 card is viewed as soon as it appears; a held card sends its beacon to a sink that records nothing.
