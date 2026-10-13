@@ -5,7 +5,7 @@ export const STUB_ANSWER =
   "This is the stub model: KIMI_API_KEY is not set, so Nova returns this fixed answer. " +
   "Set the key in the repo-root .env.local to get real answers from KIMI.";
 
-/** Answer shown when KIMI cannot answer a turn; the card still comes from the keyword pick. */
+/** Answer shown when KIMI cannot answer a turn; the card still comes from the serve API. */
 export const FALLBACK_ANSWER =
   "Nova can't reach its language model right now, so there is no full answer this time. " +
   "Please ask again in a minute.";
