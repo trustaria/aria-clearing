@@ -2,7 +2,15 @@ import { ariaClearingAbi, campaignIdOf, claimsHash, formatClaims } from "@aria-c
 import { encodeAbiParameters, encodeEventTopics, getAbiItem, getAddress, type Address, type Hex, type Log } from "viem";
 import { describe, expect, it } from "vitest";
 import type { StoredCampaign } from "../lib/campaign-store";
-import { campaignCreatedIn, checkCampaignCreated, confirmMismatch, type CampaignCreatedLog } from "../lib/campaign-confirm";
+import {
+  campaignCreatedIn,
+  checkCampaignCreated,
+  confirmMismatch,
+  disputeMismatch,
+  withdrawnBy,
+  type CampaignCreatedLog,
+} from "../lib/campaign-confirm";
+import { disputedLog, withdrawnLog } from "./clearing-logs";
 
 const CLEARING = "0x431e97E2EB23ac06C9f807cC8DCe54499C1bDC7B" as Address;
 const OTHER = "0x00000000000000000000000000000000000000c1" as Address;
@@ -133,5 +141,40 @@ describe("checkCampaignCreated", () => {
     expect(checkCampaignCreated({ status: "reverted", logs: [] }, CLEARING, pending, WALLET)).toBe("reverted");
     expect(checkCampaignCreated(ok([created({ budget: 1n })]), CLEARING, pending, WALLET)).toBe("budget");
     expect(checkCampaignCreated(ok([created({ advertiser: OTHER })]), CLEARING, pending, WALLET)).toBe("advertiser");
+  });
+});
+
+describe("wallet dispute and withdraw receipts", () => {
+  const EVENT = `0x${"0e".repeat(32)}` as Hex;
+  const CAMPAIGN = campaignIdOf(SLUG);
+  const sent = (logs: Log[], from: Address = WALLET, status: "success" | "reverted" = "success") => ({ status, from, logs });
+
+  it("accepts a dispute of the event sent by the wallet to the clearing contract", () => {
+    expect(disputeMismatch(sent([disputedLog(CLEARING, EVENT)]), CLEARING, WALLET, EVENT)).toBeNull();
+  });
+
+  it.each([
+    ["reverted", sent([disputedLog(CLEARING, EVENT)], WALLET, "reverted")],
+    ["sender", sent([disputedLog(CLEARING, EVENT)], OTHER)],
+    ["no EventDisputed log", sent([disputedLog(OTHER, EVENT)])],
+    ["no EventDisputed log", sent([disputedLog(CLEARING, `0x${"0f".repeat(32)}`)])],
+    ["no EventDisputed log", sent([])],
+  ] as const)("refuses a dispute receipt: %s", (reason, receipt) => {
+    expect(disputeMismatch(receipt, CLEARING, WALLET, EVENT)).toBe(reason);
+  });
+
+  it("reads the withdrawn amount of the campaign", () => {
+    expect(withdrawnBy(sent([withdrawnLog(CLEARING, CAMPAIGN, 3_770_000n)]), CLEARING, WALLET, CAMPAIGN)).toEqual({
+      amount: 3_770_000n,
+    });
+  });
+
+  it.each([
+    ["reverted", sent([withdrawnLog(CLEARING, CAMPAIGN, 1n)], WALLET, "reverted")],
+    ["sender", sent([withdrawnLog(CLEARING, CAMPAIGN, 1n)], OTHER)],
+    ["no Withdrawn log", sent([withdrawnLog(OTHER, CAMPAIGN, 1n)])],
+    ["no Withdrawn log", sent([withdrawnLog(CLEARING, campaignIdOf("other"), 1n)])],
+  ] as const)("refuses a withdraw receipt: %s", (error, receipt) => {
+    expect(withdrawnBy(receipt, CLEARING, WALLET, CAMPAIGN)).toEqual({ error });
   });
 });

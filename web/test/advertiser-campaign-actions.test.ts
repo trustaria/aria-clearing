@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { campaignIdOf } from "@aria-clearing/receipt";
-import type { Hex } from "viem";
+import { getAddress, type Hex } from "viem";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ALREADY_DISPUTED,
@@ -14,8 +14,10 @@ import {
   WINDOW_CLOSED,
   type ActionDeps,
 } from "../app/api/advertise/campaigns/[slug]/handlers";
+import type { WalletReceipt } from "../lib/campaign-confirm";
 import { createCampaignStore, type StoredCampaign } from "../lib/campaign-store";
 import { TreasuryError } from "../lib/treasury";
+import { disputedLog, withdrawnLog } from "./clearing-logs";
 
 const SLUG = "crema-works-a1b2";
 const CAMPAIGN = campaignIdOf(SLUG);
@@ -193,5 +195,136 @@ describe("campaign actions", () => {
       expect(await res.json()).toEqual({ refunded: 123, txHash: TX });
       expect(deps.withdraw).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe("wallet-funded campaign actions", () => {
+  const CLEARING = getAddress("0x431e97e2eb23ac06c9f807cc8dce54499c1bdc7b");
+  const WALLET = getAddress("0x9f1c2a8b7e6d5c4b3a2918070605040302010abc");
+  const STRANGER = getAddress("0x00000000000000000000000000000000000000c1");
+  const WALLET_TX = `0x${"cd".repeat(32)}` as Hex;
+
+  let dir: string;
+  let store: ReturnType<typeof createCampaignStore>;
+  let deps: ActionDeps;
+  let actions: ReturnType<typeof createCampaignActions>;
+  let receipt: WalletReceipt;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "aria-wallet-actions-"));
+    store = createCampaignStore(join(dir, "campaigns.json"));
+    store.saveCampaign({ ...crema(), funding: "wallet", advertiserAddress: WALLET });
+    receipt = { status: "success", from: WALLET, logs: [] };
+    deps = {
+      auth,
+      getRecord: (slug) => store.getStoredCampaign(slug),
+      update: (slug, patch) => store.updateCampaign(slug, patch),
+      dispute: vi.fn(async () => ({ txHash: TX })),
+      withdraw: vi.fn(async () => ({ amount: 3_770_000n, txHash: TX })),
+      walletOf: vi.fn(async () => WALLET),
+      walletReceipt: vi.fn(async () => receipt),
+      eventCampaign: vi.fn(async () => CAMPAIGN),
+      clearing: () => CLEARING,
+    };
+    actions = createCampaignActions(deps);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  describe("dispute", () => {
+    it("records a dispute the wallet sent", async () => {
+      receipt.logs = [disputedLog(CLEARING, EVENT)];
+      const res = await actions.dispute(request({ eventId: EVENT, txHash: WALLET_TX }), SLUG);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ txHash: WALLET_TX });
+      expect(deps.walletReceipt).toHaveBeenCalledWith(WALLET_TX);
+      expect(deps.walletOf).toHaveBeenCalledWith("did:privy:ana");
+      expect(deps.dispute).not.toHaveBeenCalled();
+      expect(store.getStoredCampaign(SLUG)?.disputes).toEqual({ [EVENT]: WALLET_TX });
+    });
+
+    it("never signs a dispute from the treasury for a wallet-funded campaign", async () => {
+      const res = await actions.dispute(request({ eventId: EVENT }), SLUG);
+      expect(res.status).toBe(400);
+      expect(deps.dispute).not.toHaveBeenCalled();
+      expect(deps.walletReceipt).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["another sender", () => (receipt = { status: "success", from: STRANGER, logs: [disputedLog(CLEARING, EVENT)] })],
+      ["another contract", () => (receipt.logs = [disputedLog(STRANGER, EVENT)])],
+      ["no dispute log", () => (receipt.logs = [])],
+      ["a revert", () => (receipt = { status: "reverted", from: WALLET, logs: [disputedLog(CLEARING, EVENT)] })],
+    ])("refuses a receipt from %s", async (_case, arrange) => {
+      arrange();
+      const res = await actions.dispute(request({ eventId: EVENT, txHash: WALLET_TX }), SLUG);
+      expect(res.status).toBe(422);
+      expect(await res.json()).toEqual({ error: DISPUTE_FAILED });
+      expect(store.getStoredCampaign(SLUG)?.disputes).toBeUndefined();
+    });
+
+    it("refuses an event of another campaign", async () => {
+      receipt.logs = [disputedLog(CLEARING, EVENT)];
+      vi.mocked(deps.eventCampaign!).mockResolvedValueOnce(campaignIdOf("someone-else"));
+      const res = await actions.dispute(request({ eventId: EVENT, txHash: WALLET_TX }), SLUG);
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({ error: EVENT_NOT_FOUND });
+    });
+
+    it("answers 502 when the receipt can't be read", async () => {
+      vi.mocked(deps.walletReceipt!).mockRejectedValueOnce(new Error("timeout"));
+      const res = await actions.dispute(request({ eventId: EVENT, txHash: WALLET_TX }), SLUG);
+      expect(res.status).toBe(502);
+    });
+  });
+
+  describe("end", () => {
+    it("marks the campaign ending before the wallet withdraws, then ended from the Withdrawn log", async () => {
+      const start = await actions.end(request({}), SLUG);
+      expect(start.status).toBe(200);
+      expect(await start.json()).toEqual({ ending: true, campaignId: CAMPAIGN });
+      expect(store.getStoredCampaign(SLUG)?.status).toBe("ending");
+      expect(deps.withdraw).not.toHaveBeenCalled();
+
+      receipt.logs = [withdrawnLog(CLEARING, CAMPAIGN, 3_770_000n)];
+      const done = await actions.end(request({ txHash: WALLET_TX }), SLUG);
+      expect(done.status).toBe(200);
+      expect(await done.json()).toEqual({ refunded: 377, txHash: WALLET_TX });
+      expect(store.getStoredCampaign(SLUG)).toMatchObject({ status: "ended", refunded: 3_770_000, endTxHash: WALLET_TX });
+      expect(deps.withdraw).not.toHaveBeenCalled();
+    });
+
+    it("lets the advertiser start again or cancel while ending", async () => {
+      await actions.end(request({}), SLUG);
+      expect((await actions.end(request({}), SLUG)).status).toBe(200);
+      const cancel = await actions.end(request({ cancel: true }), SLUG);
+      expect(cancel.status).toBe(200);
+      expect(store.getStoredCampaign(SLUG)?.status).toBe("live");
+    });
+
+    it("keeps the campaign ending when the withdraw receipt doesn't match", async () => {
+      await actions.end(request({}), SLUG);
+      receipt = { status: "success", from: STRANGER, logs: [withdrawnLog(CLEARING, CAMPAIGN, 1n)] };
+      const res = await actions.end(request({ txHash: WALLET_TX }), SLUG);
+      expect(res.status).toBe(422);
+      expect(await res.json()).toEqual({ error: END_FAILED });
+      expect(store.getStoredCampaign(SLUG)?.status).toBe("ending");
+    });
+
+    it("answers an ended campaign with its stored refund", async () => {
+      store.updateCampaign(SLUG, { status: "ended", refunded: 1_230_000, endTxHash: WALLET_TX });
+      expect(await (await actions.end(request({}), SLUG)).json()).toEqual({ refunded: 123, txHash: WALLET_TX });
+    });
+  });
+
+  it("leaves treasury-funded campaigns on the server-signed path", async () => {
+    store.saveCampaign(crema());
+    expect((await actions.dispute(request({ eventId: EVENT }), SLUG)).status).toBe(200);
+    expect(deps.dispute).toHaveBeenCalledWith(CAMPAIGN, EVENT);
+    expect((await actions.end(request(), SLUG)).status).toBe(200);
+    expect(deps.withdraw).toHaveBeenCalledWith(CAMPAIGN);
+    expect(deps.walletReceipt).not.toHaveBeenCalled();
   });
 });

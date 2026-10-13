@@ -47,3 +47,37 @@ export function checkCampaignCreated(
   const found = campaignCreatedIn(receipt, clearing);
   return "error" in found ? found.error : confirmMismatch(found.log, pending, wallet);
 }
+
+/** A mined transaction sent by the advertiser's wallet. */
+export type WalletReceipt = ConfirmReceipt & { from: Address };
+
+function sentBy(receipt: WalletReceipt, wallet: Address): string | null {
+  if (receipt.status !== "success") return "reverted";
+  if (!isAddressEqual(receipt.from, wallet)) return "sender";
+  return null;
+}
+
+/** Why a receipt does not show `wallet` disputing `eventId` on the clearing contract, or null when it does. Pure. */
+export function disputeMismatch(receipt: WalletReceipt, clearing: Address, wallet: Address, eventId: Hex): string | null {
+  const sender = sentBy(receipt, wallet);
+  if (sender) return sender;
+  const found = parseEventLogs({ abi: ariaClearingAbi, eventName: "EventDisputed", logs: receipt.logs }).some(
+    (log) => isAddressEqual(log.address, clearing) && log.args.eventId.toLowerCase() === eventId.toLowerCase(),
+  );
+  return found ? null : "no EventDisputed log";
+}
+
+/** The amount `wallet` withdrew from the campaign according to the receipt's `Withdrawn` log, or why not. Pure. */
+export function withdrawnBy(
+  receipt: WalletReceipt,
+  clearing: Address,
+  wallet: Address,
+  campaignId: Hex,
+): { amount: bigint } | { error: string } {
+  const sender = sentBy(receipt, wallet);
+  if (sender) return { error: sender };
+  const log = parseEventLogs({ abi: ariaClearingAbi, eventName: "Withdrawn", logs: receipt.logs }).find(
+    (l) => isAddressEqual(l.address, clearing) && l.args.campaignId.toLowerCase() === campaignId.toLowerCase(),
+  );
+  return log ? { amount: log.args.amount } : { error: "no Withdrawn log" };
+}
