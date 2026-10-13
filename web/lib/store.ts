@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import type { Hex } from "viem";
+import { dataFile } from "./data-dir";
 
 export type EventKind = "impression" | "click";
 
@@ -114,9 +115,9 @@ export function createEventStore(file: string): EventStore {
 const globalStores = globalThis as typeof globalThis & { __ariaEventStores?: Map<string, EventStore> };
 const stores = (globalStores.__ariaEventStores ??= new Map<string, EventStore>());
 
-/** The app's store: ARIA_EVENTS_FILE, else `.data/events.json` under the web app. */
+/** The app's store: ARIA_EVENTS_FILE, else `events.json` in the data dir. */
 export function eventStore(): EventStore {
-  const file = process.env.ARIA_EVENTS_FILE ?? join(process.cwd(), ".data", "events.json");
+  const file = dataFile("events.json", process.env.ARIA_EVENTS_FILE);
   let store = stores.get(file);
   if (!store) {
     store = createEventStore(file);

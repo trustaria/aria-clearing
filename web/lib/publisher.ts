@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { getAddress, isAddress, type Hex } from "viem";
+import { dataFile } from "./data-dir";
 
 export type PublisherStore = {
   get(): Hex | undefined;
@@ -25,7 +26,12 @@ export function createPublisherStore(file: string, fallback: string | undefined)
   };
 }
 
-export const publisherStore = createPublisherStore(
-  join(process.cwd(), ".data", "publisher.json"),
-  process.env.PUBLISHER_ADDRESS,
-);
+function appStore(): PublisherStore {
+  return createPublisherStore(dataFile("publisher.json", process.env.ARIA_PUBLISHER_FILE), process.env.PUBLISHER_ADDRESS);
+}
+
+/** The app's store: ARIA_PUBLISHER_FILE, else `publisher.json` in the data dir; env is read on every call. */
+export const publisherStore: PublisherStore = {
+  get: () => appStore().get(),
+  set: (address) => appStore().set(address),
+};

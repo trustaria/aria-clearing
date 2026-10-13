@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import type { Hex } from "viem";
 import type { Campaign } from "./campaigns";
+import { dataFile } from "./data-dir";
 
 /** live: pickable. ending: withdraw sent, no longer pickable. ended: withdrawn. */
 export type CampaignStatus = "live" | "ending" | "ended";
@@ -92,9 +93,9 @@ export function createCampaignStore(file: string): CampaignStore {
 const globalStores = globalThis as typeof globalThis & { __ariaCampaignStores?: Map<string, CampaignStore> };
 const stores = (globalStores.__ariaCampaignStores ??= new Map<string, CampaignStore>());
 
-/** The app's store: ARIA_CAMPAIGNS_FILE, else `.data/campaigns.json` under the web app. */
+/** The app's store: ARIA_CAMPAIGNS_FILE, else `campaigns.json` in the data dir. */
 export function campaignStore(): CampaignStore {
-  const file = process.env.ARIA_CAMPAIGNS_FILE ?? join(process.cwd(), ".data", "campaigns.json");
+  const file = dataFile("campaigns.json", process.env.ARIA_CAMPAIGNS_FILE);
   let store = stores.get(file);
   if (!store) {
     store = createCampaignStore(file);
