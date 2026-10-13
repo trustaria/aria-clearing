@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { DisputeResult, EndResult } from "../../../lib/advertise-client";
 import type { CampaignStatsJson } from "../../../lib/advertiser-data";
+import { AriaEyebrow } from "../../AriaBrand";
 import { Section } from "../../receipt/ReceiptDocument";
 import { NO_ACTIONS, reduceActions, runDispute, runEnd, WALLET_DISPUTE_MIN_S, type EndState } from "./actions";
 import { toCampaignView, type CampaignView, type SentenceRow, type StatCard, type Tone } from "./view-model";
@@ -24,12 +25,12 @@ const SMALL_BUTTON =
 
 export function Eyebrow() {
   return (
-    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
-      Aria for advertisers ·{" "}
+    <AriaEyebrow>
+      for advertisers ·{" "}
       <a href="/advertise" className="normal-case tracking-normal hover:text-stone-900">
         ← Campaigns
       </a>
-    </p>
+    </AriaEyebrow>
   );
 }
 

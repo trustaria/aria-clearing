@@ -1,9 +1,11 @@
+import { AriaEyebrow } from "../../../components/AriaBrand";
+
 export default function Loading() {
   return (
     <main className="min-h-screen bg-[#faf9f6] text-stone-900">
       <div className="mx-auto max-w-2xl space-y-8 px-6 py-14 sm:py-20">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">Aria receipt</p>
+          <AriaEyebrow>receipt</AriaEyebrow>
           <p className="mt-2 text-sm text-stone-500">Reading the receipt from Monad…</p>
         </div>
         <div className="animate-pulse space-y-3" aria-hidden>

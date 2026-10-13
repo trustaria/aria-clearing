@@ -7,6 +7,7 @@ import { toDashboardView, type CardView, type DashboardView, type FeedRow } from
 import type { Tone } from "../../app/receipt/view-model";
 import type { DashboardJson } from "../../lib/dashboard-data";
 import { demoKeyHeaders } from "../../lib/demo-key-client";
+import { AriaEyebrow } from "../AriaBrand";
 import { Section } from "../receipt/ReceiptDocument";
 import IntegrationPanel from "./IntegrationPanel";
 import RetryPayoutButton from "./RetryPayoutButton";
@@ -24,7 +25,7 @@ const BUTTON =
   "rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-medium text-stone-600 transition hover:text-stone-900 disabled:text-stone-400";
 
 function Eyebrow() {
-  return <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">Aria for publishers</p>;
+  return <AriaEyebrow>for publishers</AriaEyebrow>;
 }
 
 function SignedOut({ onLogin, ready }: { onLogin: () => void; ready: boolean }) {
