@@ -1,13 +1,14 @@
 import { ariaClearingAbi } from "@aria-clearing/receipt";
 import type { Hex } from "viem";
 import { verifyAdvertiser } from "@/lib/advertiser-auth";
+import { advertiserWalletOf } from "@/lib/advertiser-wallet";
 import { listCampaignsByOwner, saveCampaign } from "@/lib/campaign-store";
 import { campaignBySlug } from "@/lib/campaigns";
 import { publicClient } from "@/lib/chain";
 import { hasDemoKey } from "@/lib/demo-key";
 import { deployment } from "@/lib/deployment";
 import { launchCampaign, treasuryUsdcBalance } from "@/lib/treasury";
-import { createCampaignHandlers, launchLimitsFromEnv } from "./handlers";
+import { createCampaignHandlers, fundingModeFromEnv, launchLimitsFromEnv } from "./handlers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,6 +33,9 @@ const handlers = createCampaignHandlers({
   campaignState,
   limits: launchLimitsFromEnv,
   bypass: hasDemoKey,
+  funding: fundingModeFromEnv,
+  walletOf: advertiserWalletOf,
+  addresses: () => deployment(),
 });
 
 export const GET = handlers.GET;

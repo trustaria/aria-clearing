@@ -12,16 +12,22 @@ import {
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   budgetCapMessage,
+  CONFIRM_FAILED,
+  CONFIRM_MISMATCH,
   createCampaignHandlers,
+  createWalletLaunchHandlers,
+  fundingModeFromEnv,
   LAUNCH_FAILED,
   LAUNCH_IN_PROGRESS,
   launchLimitMessage,
   launchLimitsFromEnv,
   lowFundsMessage,
+  NO_WALLET,
   slugify,
   toUsdcUnits,
   validateLaunch,
   type Deps,
+  type WalletDeps,
 } from "../app/api/advertise/campaigns/handlers";
 import { verifyAdvertiser } from "../lib/advertiser-auth";
 import type { StoredCampaign } from "../lib/campaign-store";
@@ -578,5 +584,283 @@ describe("launch limits", () => {
     vi.stubEnv("ARIA_LAUNCH_PER_USER", "-1");
     expect(launchLimitsFromEnv()).toEqual({});
     vi.unstubAllEnvs();
+  });
+});
+
+const WALLET = "0x9f1c2a8b7e6d5c4b3a2918070605040302010abc" as Hex;
+const WALLET_CLEARING = "0x431e97E2EB23ac06C9f807cC8DCe54499C1bDC7B";
+
+describe("funding mode", () => {
+  it("reads ADVERTISER_FUNDING, treasury by default", () => {
+    vi.stubEnv("ADVERTISER_FUNDING", "");
+    expect(fundingModeFromEnv()).toBe("treasury");
+    vi.stubEnv("ADVERTISER_FUNDING", "wallet");
+    expect(fundingModeFromEnv()).toBe("wallet");
+    vi.stubEnv("ADVERTISER_FUNDING", "WALLET ");
+    expect(fundingModeFromEnv()).toBe("wallet");
+    vi.stubEnv("ADVERTISER_FUNDING", "other");
+    expect(fundingModeFromEnv()).toBe("treasury");
+    vi.unstubAllEnvs();
+  });
+
+  it("GET reports treasury funding without wallet details", async () => {
+    const { handlers } = setup({ funding: () => "treasury" });
+    const body = await (await handlers.GET(get())).json();
+    expect(body.funding).toBe("treasury");
+    expect(body.wallet).toBeUndefined();
+  });
+
+  it("GET reports the caller's wallet, the clearing and USDC addresses in wallet mode", async () => {
+    const walletOf = vi.fn(async () => WALLET);
+    const { handlers } = setup({
+      funding: () => "wallet",
+      walletOf,
+      addresses: () => ({ clearing: WALLET_CLEARING, usdc: USDC }),
+    });
+    const body = await (await handlers.GET(get("alice"))).json();
+    expect(body).toMatchObject({ funding: "wallet", wallet: { address: WALLET, clearing: WALLET_CLEARING, usdc: USDC } });
+    expect(walletOf).toHaveBeenCalledWith("alice");
+  });
+
+  it("GET still answers when the wallet lookup fails", async () => {
+    const { handlers } = setup({
+      funding: () => "wallet",
+      walletOf: async () => {
+        throw new Error("privy down");
+      },
+      addresses: () => ({ clearing: WALLET_CLEARING, usdc: USDC }),
+    });
+    const res = await handlers.GET(get());
+    expect(res.status).toBe(200);
+    expect((await res.json()).wallet.address).toBeNull();
+  });
+
+  it("GET leaves pending campaigns out of the list", async () => {
+    const { handlers, saved } = setup();
+    await handlers.POST(post(BODY));
+    saved.push({ ...saved[0], slug: "crema-works-pend", status: "pending" });
+    const body = await (await handlers.GET(get())).json();
+    expect(body.campaigns.map((c: { slug: string }) => c.slug)).toEqual(["crema-works-k3x9"]);
+  });
+
+  it("POST does not launch from the treasury in wallet mode", async () => {
+    const { handlers, deps } = setup({ funding: () => "wallet" });
+    const res = await handlers.POST(post(BODY));
+    expect(res.status).toBe(409);
+    expect(deps.launch).not.toHaveBeenCalled();
+  });
+});
+
+describe("wallet launch: prepare and confirm", () => {
+  const CONFIRM_TX = `0x${"ef".repeat(32)}` as Hex;
+
+  function walletSetup(overrides: Partial<WalletDeps> = {}) {
+    const records = new Map<string, StoredCampaign>();
+    const suffixes = ["k3x9", "m2p4", "q7r1", "t5v8", "w0y2", "z9a3"];
+    let n = 0;
+    const deps: WalletDeps = {
+      auth,
+      funding: () => "wallet",
+      walletOf: vi.fn(async () => WALLET),
+      getRecord: (slug) => records.get(slug),
+      save: vi.fn((record: StoredCampaign) => {
+        records.set(record.slug, record);
+        return record;
+      }),
+      update: vi.fn((slug: string, patch: Partial<StoredCampaign>) => {
+        const next = { ...records.get(slug)!, ...patch, slug };
+        records.set(slug, next);
+        return next;
+      }),
+      listByOwner: (ownerId) => [...records.values()].filter((r) => r.ownerId === ownerId).reverse(),
+      slugTaken: (slug) => records.has(slug),
+      campaignExists: vi.fn(async () => false),
+      receipt: vi.fn(async () => ({ status: "success" as const, logs: [], blockNumber: 70_800_000n })),
+      check: vi.fn(() => null),
+      addresses: () => ({ clearing: WALLET_CLEARING, usdc: USDC }),
+      suffix: () => suffixes[n++ % suffixes.length],
+      now: () => 1_760_000_000_000,
+      ...overrides,
+    };
+    return { deps, records, handlers: createWalletLaunchHandlers(deps) };
+  }
+
+  function walletReq(path: string, body: unknown, user = "alice") {
+    return new Request(`http://x/api/advertise/campaigns/${path}`, {
+      method: "POST",
+      headers: { authorization: `Bearer token-${user}`, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+  const prepareReq = (body: unknown, user?: string) => walletReq("prepare", body, user);
+  const confirmReq = (body: unknown, user?: string) => walletReq("confirm", body, user);
+
+  it("answers 401 without a valid token", async () => {
+    const { handlers, deps } = walletSetup();
+    expect((await handlers.prepare(new Request("http://x", { method: "POST", body: "{}" }))).status).toBe(401);
+    expect((await handlers.confirm(new Request("http://x", { method: "POST", body: "{}" }))).status).toBe(401);
+    expect(deps.save).not.toHaveBeenCalled();
+  });
+
+  it("is not found in treasury mode", async () => {
+    const { handlers, deps } = walletSetup({ funding: () => "treasury" });
+    expect((await handlers.prepare(prepareReq(BODY))).status).toBe(404);
+    expect((await handlers.confirm(confirmReq({ slug: "x", txHash: CONFIRM_TX }))).status).toBe(404);
+    expect(deps.save).not.toHaveBeenCalled();
+  });
+
+  it("validates the launch like the treasury path", async () => {
+    const { handlers, deps } = walletSetup();
+    const res = await handlers.prepare(prepareReq({ ...BODY, brand: "C" }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ field: "brand" });
+    expect(deps.save).not.toHaveBeenCalled();
+  });
+
+  it("saves a pending record and returns the escrow call built on the server", async () => {
+    const { handlers, records } = walletSetup();
+    const res = await handlers.prepare(prepareReq({ ...BODY, wallet: "0x0000000000000000000000000000000000000bad" }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({
+      slug: "crema-works-k3x9",
+      campaignId: campaignIdOf("crema-works-k3x9"),
+      clearing: WALLET_CLEARING,
+      usdc: USDC,
+      budget: "5000000",
+      wallet: WALLET,
+    });
+    const call = decodeFunctionData({ abi: ariaClearingAbi, data: body.createCampaignData });
+    expect(call.functionName).toBe("createCampaign");
+    expect(call.args).toEqual([
+      campaignIdOf("crema-works-k3x9"),
+      formatClaims(NORMALISED_CLAIMS),
+      10_000n,
+      250_000n,
+      5_000_000n,
+    ]);
+    expect(records.get("crema-works-k3x9")).toMatchObject({
+      status: "pending",
+      funding: "wallet",
+      ownerId: "alice",
+      ownerEmail: BODY.email,
+      budget: 5_000_000,
+      priceClick: 250_000,
+      priceImpression: 10_000,
+      claims: NORMALISED_CLAIMS,
+    });
+  });
+
+  it("reuses the owner's pending record for the same inputs", async () => {
+    const { handlers, records, deps } = walletSetup();
+    const first = await (await handlers.prepare(prepareReq(BODY))).json();
+    const again = await (await handlers.prepare(prepareReq({ ...BODY, email: "other@crema.works" }))).json();
+    expect(again.slug).toBe(first.slug);
+    expect(records.size).toBe(1);
+    expect(deps.save).toHaveBeenCalledTimes(1);
+
+    const changed = await (await handlers.prepare(prepareReq({ ...BODY, budgetCents: 600 }))).json();
+    expect(changed.slug).not.toBe(first.slug);
+    const bob = await (await handlers.prepare(prepareReq(BODY, "bob"))).json();
+    expect(bob.slug).not.toBe(first.slug);
+  });
+
+  it("skips a slug that is stored or already used onchain", async () => {
+    const taken = campaignIdOf("crema-works-m2p4");
+    const { handlers, records } = walletSetup({ campaignExists: vi.fn(async (id: Hex) => id === taken) });
+    records.set("crema-works-k3x9", { slug: "crema-works-k3x9", ownerId: "carol", status: "live" } as StoredCampaign);
+    const body = await (await handlers.prepare(prepareReq(BODY))).json();
+    expect(body.slug).toBe("crema-works-q7r1");
+  });
+
+  it("applies the budget cap and the launch count, pending records not counted", async () => {
+    const bypass = (req: Request) => req.headers.get("x-demo") === "1";
+    const { handlers, records } = walletSetup({ limits: () => ({ maxBudgetCents: 500, perUser: 1 }), bypass });
+    expect((await handlers.prepare(prepareReq({ ...BODY, budgetCents: 501 }))).status).toBe(400);
+    expect((await handlers.prepare(prepareReq(BODY))).status).toBe(200);
+    expect((await handlers.prepare(prepareReq({ ...BODY, budgetCents: 400 }))).status).toBe(200);
+    for (const [slug, r] of records) records.set(slug, { ...r, status: "live" });
+    const res = await handlers.prepare(prepareReq({ ...BODY, budgetCents: 300 }));
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ code: "limit", error: launchLimitMessage(1) });
+    const withKey = prepareReq({ ...BODY, budgetCents: 900 });
+    withKey.headers.set("x-demo", "1");
+    expect((await handlers.prepare(withKey)).status).toBe(200);
+  });
+
+  it("asks the advertiser to wait when they have no embedded wallet yet", async () => {
+    const { handlers, deps } = walletSetup({ walletOf: vi.fn(async () => null) });
+    const res = await handlers.prepare(prepareReq(BODY));
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe(NO_WALLET);
+    expect(deps.save).not.toHaveBeenCalled();
+  });
+
+  it("confirms a matching receipt and makes the campaign live", async () => {
+    const check = vi.fn(() => null);
+    const { handlers, records, deps } = walletSetup({ check });
+    const { slug } = await (await handlers.prepare(prepareReq(BODY))).json();
+    const res = await handlers.confirm(confirmReq({ slug, txHash: CONFIRM_TX }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ slug, txHash: CONFIRM_TX });
+    expect(deps.receipt).toHaveBeenCalledWith(CONFIRM_TX);
+    expect(check).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "success" }),
+      WALLET_CLEARING,
+      expect.objectContaining({ slug, status: "pending" }),
+      WALLET,
+    );
+    expect(records.get(slug)).toMatchObject({
+      status: "live",
+      txHash: CONFIRM_TX,
+      createdBlock: 70_800_000,
+      advertiserAddress: WALLET,
+      funding: "wallet",
+    });
+  });
+
+  it("replays the same hash without reading the chain again", async () => {
+    const { handlers, deps } = walletSetup();
+    const { slug } = await (await handlers.prepare(prepareReq(BODY))).json();
+    await handlers.confirm(confirmReq({ slug, txHash: CONFIRM_TX }));
+    const again = await handlers.confirm(confirmReq({ slug, txHash: `0x${"EF".repeat(32)}` }));
+    expect(again.status).toBe(200);
+    expect(await again.json()).toEqual({ slug, txHash: CONFIRM_TX });
+    expect(deps.receipt).toHaveBeenCalledTimes(1);
+    expect((await handlers.confirm(confirmReq({ slug, txHash: TX }))).status).toBe(409);
+  });
+
+  it("leaves the campaign pending when the receipt does not match", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { handlers, records, deps } = walletSetup({ check: vi.fn(() => "advertiser") });
+    const { slug } = await (await handlers.prepare(prepareReq(BODY))).json();
+    const res = await handlers.confirm(confirmReq({ slug, txHash: CONFIRM_TX }));
+    expect(res.status).toBe(422);
+    expect((await res.json()).error).toBe(CONFIRM_MISMATCH);
+    expect(records.get(slug)?.status).toBe("pending");
+    expect(deps.update).not.toHaveBeenCalled();
+  });
+
+  it("leaves the campaign pending when the receipt can't be read", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { handlers, records } = walletSetup({
+      receipt: vi.fn(async () => {
+        throw new Error("timeout");
+      }),
+    });
+    const { slug } = await (await handlers.prepare(prepareReq(BODY))).json();
+    const res = await handlers.confirm(confirmReq({ slug, txHash: CONFIRM_TX }));
+    expect(res.status).toBe(502);
+    expect((await res.json()).error).toBe(CONFIRM_FAILED);
+    expect(records.get(slug)?.status).toBe("pending");
+  });
+
+  it("refuses an unknown slug, another owner's campaign and a malformed hash", async () => {
+    const { handlers, deps } = walletSetup();
+    const { slug } = await (await handlers.prepare(prepareReq(BODY))).json();
+    expect((await handlers.confirm(confirmReq({ slug: "nope", txHash: CONFIRM_TX }))).status).toBe(404);
+    expect((await handlers.confirm(confirmReq({ slug, txHash: CONFIRM_TX }, "bob"))).status).toBe(404);
+    expect((await handlers.confirm(confirmReq({ slug, txHash: "0x1234" }))).status).toBe(400);
+    expect(deps.receipt).not.toHaveBeenCalled();
   });
 });

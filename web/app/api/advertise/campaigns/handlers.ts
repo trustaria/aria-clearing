@@ -1,9 +1,11 @@
 import { randomBytes } from "node:crypto";
-import type { Hex } from "viem";
+import { campaignIdOf } from "@aria-clearing/receipt";
+import type { Address, Hex } from "viem";
 import type { Advertiser } from "../../../../lib/advertiser-auth";
-import type { StoredCampaign } from "../../../../lib/campaign-store";
+import { checkCampaignCreated, type ConfirmReceipt } from "../../../../lib/campaign-confirm";
+import type { CampaignFunding, StoredCampaign } from "../../../../lib/campaign-store";
 import { CATEGORIES, KEYWORDS_LIMIT, normalizeClaims, type Category } from "../../../../lib/claims-draft";
-import { LaunchError, type LaunchArgs, type LaunchResult } from "../../../../lib/treasury";
+import { createCampaignCalldata, LaunchError, type LaunchArgs, type LaunchResult } from "../../../../lib/treasury";
 
 /** USDC units (6 decimals) per US cent. */
 const UNITS_PER_CENT = 10_000n;
@@ -12,6 +14,21 @@ const LAUNCH_ATTEMPTS = 3;
 
 export const LAUNCH_FAILED = "We couldn't launch right now. Nothing was charged. Try again in a minute.";
 export const LAUNCH_IN_PROGRESS = "Your last campaign is still launching. Try again in a moment.";
+export const NO_WALLET = "Your campaign wallet isn't ready yet. Refresh the page and try again.";
+export const CONFIRM_FAILED = "We couldn't confirm your launch yet. Your campaign isn't live. Try again in a minute.";
+export const CONFIRM_MISMATCH = "That transaction doesn't match this campaign, so your campaign isn't live.";
+export const CONFIRM_CONFLICT = "This campaign was already launched with another transaction.";
+const NOT_FOUND = "Not found.";
+const CAMPAIGN_NOT_FOUND = "Campaign not found.";
+const TX_HASH = /^0x[0-9a-fA-F]{64}$/;
+
+/** Who funds console campaigns. */
+export type FundingMode = CampaignFunding;
+
+/** ADVERTISER_FUNDING: "wallet" for the advertiser's embedded wallet; anything else means the treasury. */
+export function fundingModeFromEnv(): FundingMode {
+  return (process.env.ADVERTISER_FUNDING ?? "").trim().toLowerCase() === "wallet" ? "wallet" : "treasury";
+}
 
 /** Per-campaign budget cap and launches per advertiser; an absent field means no limit. */
 export type LaunchLimits = { maxBudgetCents?: number; perUser?: number };
@@ -198,6 +215,35 @@ export type Deps = {
   bypass?: (req: Request) => boolean;
   suffix?: () => string;
   now?: () => number;
+  /** When set, GET reports it; in wallet mode POST refuses treasury launches. */
+  funding?: () => FundingMode;
+  /** The caller's embedded wallet, looked up server-side. */
+  walletOf?: (userId: string) => Promise<Address | null>;
+  addresses?: () => { clearing: Address; usdc: Address };
+};
+
+/** Wallet-funded launch: prepare saves a pending record, confirm checks the createCampaign receipt. */
+export type WalletDeps = {
+  auth: (req: Request) => Promise<Advertiser | Response>;
+  funding: () => FundingMode;
+  /** The caller's embedded wallet, looked up server-side. */
+  walletOf: (userId: string) => Promise<Address | null>;
+  getRecord: (slug: string) => StoredCampaign | undefined;
+  save: (record: StoredCampaign) => StoredCampaign;
+  update: (slug: string, patch: Partial<StoredCampaign>) => StoredCampaign;
+  listByOwner: (ownerId: string) => StoredCampaign[];
+  /** True when the slug is a seeded or stored campaign. */
+  slugTaken: (slug: string) => boolean;
+  /** True when the campaign id already has an advertiser onchain. */
+  campaignExists: (campaignId: Hex) => Promise<boolean>;
+  /** Waits for a mined transaction. */
+  receipt: (hash: Hex) => Promise<ConfirmReceipt & { blockNumber: bigint }>;
+  check?: typeof checkCampaignCreated;
+  addresses: () => { clearing: Address; usdc: Address };
+  limits?: () => LaunchLimits;
+  bypass?: (req: Request) => boolean;
+  suffix?: () => string;
+  now?: () => number;
 };
 
 type Outcome = { status: number; body: Record<string, unknown> };
@@ -212,20 +258,46 @@ type InFlight = { key: string; outcome: Promise<Outcome> };
 const globalLaunches = globalThis as typeof globalThis & { __ariaLaunchesInFlight?: Map<string, InFlight> };
 const inFlight = (globalLaunches.__ariaLaunchesInFlight ??= new Map<string, InFlight>());
 
+type LimitDeps = Pick<Deps, "limits" | "bypass" | "listByOwner">;
+
+function limitsOf(deps: LimitDeps, req: Request): LaunchLimits {
+  return deps.bypass?.(req) ? {} : (deps.limits?.() ?? {});
+}
+
+/** The budget cap or launch count refusal for this request, or null. Pending records do not count as launches. */
+function limitRefusal(deps: LimitDeps, req: Request, userId: string, input: LaunchInput): Outcome | null {
+  const limits = limitsOf(deps, req);
+  if (limits.maxBudgetCents !== undefined && input.budgetCents > limits.maxBudgetCents) {
+    const error = budgetCapMessage(limits.maxBudgetCents);
+    return { status: 400, body: { error, field: "budgetCents", code: "limit" } };
+  }
+  const launched = deps.listByOwner(userId).filter((r) => r.status !== "pending").length;
+  if (limits.perUser !== undefined && launched >= limits.perUser) {
+    return { status: 403, body: { error: launchLimitMessage(limits.perUser), code: "limit" } };
+  }
+  return null;
+}
+
+/** `<slugified brand>-<suffix>` not yet taken, or null after SLUG_ATTEMPTS tries. */
+async function freshSlugFor(
+  brand: string,
+  suffix: () => string,
+  taken: (slug: string) => boolean | Promise<boolean>,
+): Promise<string | null> {
+  const base = slugify(brand);
+  for (let i = 0; i < SLUG_ATTEMPTS; i++) {
+    const slug = `${base}-${suffix()}`;
+    if (!(await taken(slug))) return slug;
+  }
+  return null;
+}
+
 /** GET lists the caller's campaigns and the largest budget the treasury can fund; POST launches one. */
 export function createCampaignHandlers(deps: Deps) {
   const suffix = deps.suffix ?? randomSuffix;
   const now = deps.now ?? Date.now;
-  const limitsFor = (req: Request): LaunchLimits => (deps.bypass?.(req) ? {} : (deps.limits?.() ?? {}));
-
-  function freshSlug(brand: string): string | null {
-    const base = slugify(brand);
-    for (let i = 0; i < SLUG_ATTEMPTS; i++) {
-      const slug = `${base}-${suffix()}`;
-      if (!deps.slugTaken(slug)) return slug;
-    }
-    return null;
-  }
+  const limitsFor = (req: Request): LaunchLimits => limitsOf(deps, req);
+  const freshSlug = (brand: string) => freshSlugFor(brand, suffix, deps.slugTaken);
 
   async function launch(userId: string, input: LaunchInput): Promise<Outcome> {
     const units = toUsdcUnits(input);
@@ -239,7 +311,7 @@ export function createCampaignHandlers(deps: Deps) {
     if (balance < units.budget) return { status: 402, body: { error: lowFundsMessage(balance) } };
 
     for (let attempt = 0; attempt < LAUNCH_ATTEMPTS; attempt++) {
-      const slug = freshSlug(input.brand);
+      const slug = await freshSlug(input.brand);
       if (!slug) break;
       let result: LaunchResult;
       try {
@@ -284,12 +356,21 @@ export function createCampaignHandlers(deps: Deps) {
     return { status: 409, body: { error: LAUNCH_FAILED } };
   }
 
+  async function walletOrNull(userId: string): Promise<Address | null> {
+    try {
+      return (await deps.walletOf?.(userId)) ?? null;
+    } catch (err) {
+      console.error(`advertise wallet lookup failed: ${message(err)}`);
+      return null;
+    }
+  }
+
   return {
     async GET(req: Request): Promise<Response> {
       const advertiser = await deps.auth(req);
       if (advertiser instanceof Response) return advertiser;
 
-      const records = deps.listByOwner(advertiser.userId);
+      const records = deps.listByOwner(advertiser.userId).filter((r) => r.status !== "pending");
       const [balance, states] = await Promise.all([
         deps.balance().catch(() => 0n),
         Promise.all(records.map((r) => deps.campaignState(r.campaignId).catch(() => null))),
@@ -310,26 +391,31 @@ export function createCampaignHandlers(deps: Deps) {
       });
       const cap = limitsFor(req).maxBudgetCents;
       const maxBudget = cap === undefined ? centsOf(balance) : Math.min(centsOf(balance), cap);
-      return json({ status: 200, body: { campaigns, maxBudget } });
+      const body: Record<string, unknown> = { campaigns, maxBudget };
+      if (deps.funding) {
+        const funding = deps.funding();
+        body.funding = funding;
+        if (funding === "wallet") {
+          const addresses = deps.addresses?.();
+          const address = await walletOrNull(advertiser.userId);
+          body.wallet = { address, clearing: addresses?.clearing ?? null, usdc: addresses?.usdc ?? null };
+        }
+      }
+      return json({ status: 200, body });
     },
 
     async POST(req: Request): Promise<Response> {
       const advertiser = await deps.auth(req);
       if (advertiser instanceof Response) return advertiser;
+      if (deps.funding?.() === "wallet") return json({ status: 409, body: { error: LAUNCH_FAILED, code: "wallet" } });
 
       const body = await req.json().catch(() => null);
       const checked = validateLaunch(body);
       if ("error" in checked) return json({ status: 400, body: { error: checked.error, field: checked.field } });
       const input = checked.value;
 
-      const limits = limitsFor(req);
-      if (limits.maxBudgetCents !== undefined && input.budgetCents > limits.maxBudgetCents) {
-        const error = budgetCapMessage(limits.maxBudgetCents);
-        return json({ status: 400, body: { error, field: "budgetCents", code: "limit" } });
-      }
-      if (limits.perUser !== undefined && deps.listByOwner(advertiser.userId).length >= limits.perUser) {
-        return json({ status: 403, body: { error: launchLimitMessage(limits.perUser), code: "limit" } });
-      }
+      const refusal = limitRefusal(deps, req, advertiser.userId, input);
+      if (refusal) return json(refusal);
 
       // A repeat of the same request while it is in flight gets the same outcome; a different one waits its turn.
       const key = JSON.stringify({ ...input, email: undefined });
@@ -346,6 +432,165 @@ export function createCampaignHandlers(deps: Deps) {
       } finally {
         inFlight.delete(advertiser.userId);
       }
+    },
+  };
+}
+
+function message(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/** True when a pending record was prepared from the same launch input. */
+function samePending(record: StoredCampaign, input: LaunchInput): boolean {
+  const units = toUsdcUnits(input);
+  const same = (a: string[], b: string[]) => a.length === b.length && a.every((v, i) => v === b[i]);
+  return (
+    record.status === "pending" &&
+    record.advertiser === input.brand &&
+    record.url === input.url &&
+    record.category === input.category &&
+    same(record.claims, input.claims) &&
+    same(record.keywords, input.keywords) &&
+    BigInt(record.priceImpression) === units.priceImpression &&
+    BigInt(record.priceClick) === units.priceClick &&
+    BigInt(record.budget) === units.budget
+  );
+}
+
+/** POST prepare saves a pending campaign and returns the createCampaign call; POST confirm makes it live. */
+export function createWalletLaunchHandlers(deps: WalletDeps) {
+  const suffix = deps.suffix ?? randomSuffix;
+  const now = deps.now ?? Date.now;
+  const check = deps.check ?? checkCampaignCreated;
+
+  async function signedIn(req: Request): Promise<Advertiser | Response> {
+    const advertiser = await deps.auth(req);
+    if (advertiser instanceof Response) return advertiser;
+    if (deps.funding() !== "wallet") return json({ status: 404, body: { error: NOT_FOUND } });
+    return advertiser;
+  }
+
+  async function lookupWallet(userId: string): Promise<Address | Outcome> {
+    try {
+      const wallet = await deps.walletOf(userId);
+      return wallet ?? { status: 409, body: { error: NO_WALLET } };
+    } catch (err) {
+      console.error(`advertise wallet lookup failed: ${message(err)}`);
+      return { status: 502, body: { error: LAUNCH_FAILED } };
+    }
+  }
+
+  function prepared(record: StoredCampaign, wallet: Address): Outcome {
+    const { clearing, usdc } = deps.addresses();
+    const createCampaignData = createCampaignCalldata({
+      slug: record.slug,
+      claims: record.claims,
+      priceImpression: BigInt(record.priceImpression),
+      priceClick: BigInt(record.priceClick),
+      budget: BigInt(record.budget),
+    });
+    const body = { slug: record.slug, campaignId: record.campaignId, clearing, usdc, budget: String(record.budget) };
+    return { status: 200, body: { ...body, createCampaignData, wallet } };
+  }
+
+  return {
+    /** Launch input → `{slug, campaignId, clearing, usdc, budget, createCampaignData, wallet}`; the record stays pending. */
+    async prepare(req: Request): Promise<Response> {
+      const advertiser = await signedIn(req);
+      if (advertiser instanceof Response) return advertiser;
+
+      const checked = validateLaunch(await req.json().catch(() => null));
+      if ("error" in checked) return json({ status: 400, body: { error: checked.error, field: checked.field } });
+      const input = checked.value;
+
+      const refusal = limitRefusal(deps, req, advertiser.userId, input);
+      if (refusal) return json(refusal);
+
+      const wallet = await lookupWallet(advertiser.userId);
+      if (typeof wallet !== "string") return json(wallet);
+
+      const reusable = deps.listByOwner(advertiser.userId).find((r) => samePending(r, input));
+      if (reusable) return json(prepared(reusable, wallet));
+
+      let slug: string | null;
+      try {
+        const taken = async (s: string) => deps.slugTaken(s) || (await deps.campaignExists(campaignIdOf(s)));
+        slug = await freshSlugFor(input.brand, suffix, taken);
+      } catch (err) {
+        console.error(`advertise prepare: campaign read failed: ${message(err)}`);
+        return json({ status: 502, body: { error: LAUNCH_FAILED } });
+      }
+      if (!slug) return json({ status: 409, body: { error: LAUNCH_FAILED } });
+
+      const units = toUsdcUnits(input);
+      const record = deps.save({
+        slug,
+        advertiser: input.brand,
+        url: input.url,
+        category: input.category,
+        claims: input.claims,
+        keywords: input.keywords,
+        priceImpression: Number(units.priceImpression),
+        priceClick: Number(units.priceClick),
+        budget: Number(units.budget),
+        campaignId: campaignIdOf(slug),
+        ownerId: advertiser.userId,
+        ownerEmail: input.email,
+        txHash: "0x",
+        createdBlock: 0,
+        createdAt: now(),
+        status: "pending",
+        funding: "wallet",
+      });
+      return json(prepared(record, wallet));
+    },
+
+    /** `{slug, txHash}` → `{slug, txHash}` once the receipt's CampaignCreated log matches the pending record. */
+    async confirm(req: Request): Promise<Response> {
+      const advertiser = await signedIn(req);
+      if (advertiser instanceof Response) return advertiser;
+
+      const body = (await req.json().catch(() => null)) as { slug?: unknown; txHash?: unknown } | null;
+      const slug = typeof body?.slug === "string" ? body.slug : "";
+      const record = deps.getRecord(slug);
+      if (!record || record.ownerId !== advertiser.userId) {
+        return json({ status: 404, body: { error: CAMPAIGN_NOT_FOUND } });
+      }
+      if (typeof body?.txHash !== "string" || !TX_HASH.test(body.txHash)) {
+        return json({ status: 400, body: { error: CONFIRM_FAILED } });
+      }
+      const txHash = body.txHash.toLowerCase() as Hex;
+
+      if (record.status !== "pending") {
+        if (record.txHash.toLowerCase() === txHash) return json({ status: 200, body: { slug, txHash: record.txHash } });
+        return json({ status: 409, body: { error: CONFIRM_CONFLICT } });
+      }
+
+      const wallet = await lookupWallet(advertiser.userId);
+      if (typeof wallet !== "string") return json(wallet);
+
+      let receipt: ConfirmReceipt & { blockNumber: bigint };
+      try {
+        receipt = await deps.receipt(txHash);
+      } catch (err) {
+        console.error(`advertise confirm: receipt for ${txHash} failed: ${message(err)}`);
+        return json({ status: 502, body: { error: CONFIRM_FAILED } });
+      }
+
+      const problem = check(receipt, deps.addresses().clearing, record, wallet);
+      if (problem) {
+        console.warn(`advertise confirm refused for ${slug} (tx ${txHash}): ${problem}`);
+        return json({ status: 422, body: { error: CONFIRM_MISMATCH } });
+      }
+
+      deps.update(slug, {
+        status: "live",
+        txHash,
+        createdBlock: Number(receipt.blockNumber),
+        advertiserAddress: wallet,
+        funding: "wallet",
+      });
+      return json({ status: 200, body: { slug, txHash } });
     },
   };
 }
