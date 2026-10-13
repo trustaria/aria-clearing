@@ -19,6 +19,7 @@
   --aria-fg: #404040;
   --aria-accent: #171717;
   --aria-border: #e5e5e5;
+  --aria-border-left: #d4d4d4;
   --aria-font: inherit;
 }
 
@@ -27,6 +28,7 @@
     --aria-fg: #d4d4d4;
     --aria-accent: #a3a3a3;
     --aria-border: #404040;
+    --aria-border-left: #525252;
   }
 }
 
