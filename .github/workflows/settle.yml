@@ -1,0 +1,62 @@
+name: settle
+
+# Runs the aria-settle Chainlink CRE workflow in simulation and broadcasts its report, so events logged
+# by the live app are settled and paid without anyone running the command. A run with nothing past
+# the dispute window sends no transaction.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: settle
+  cancel-in-progress: false
+
+env:
+  CRE_VERSION: v1.38.0
+  CRE_SHA256: 299e059aa086ff7e0413c4855269d1caf65e98e99ea72ae48766fb108a2c53da
+
+jobs:
+  settle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.3
+      - name: Install the CRE CLI
+        run: |
+          set -euo pipefail
+          curl -sSfLo /tmp/cre.tgz "https://github.com/smartcontractkit/cre-cli/releases/download/${CRE_VERSION}/cre_linux_amd64.tar.gz"
+          echo "${CRE_SHA256}  /tmp/cre.tgz" | sha256sum -c -
+          mkdir -p "$HOME/.local/bin"
+          tar -xzf /tmp/cre.tgz -C /tmp
+          install -m 0755 "/tmp/cre_${CRE_VERSION}_linux_amd64" "$HOME/.local/bin/cre"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Install the workflow's dependencies
+        working-directory: cre/aria-settle
+        run: bun install --frozen-lockfile
+      - name: Settle
+        working-directory: cre
+        env:
+          CRE_API_KEY: ${{ secrets.CRE_API_KEY }}
+          CRE_ETH_PRIVATE_KEY: ${{ secrets.CRE_ETH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf 'CRE_ETH_PRIVATE_KEY=%s\n' "$CRE_ETH_PRIVATE_KEY" > .env
+          cre workflow simulate ./aria-settle -T staging-settings --non-interactive --trigger-index 0 --broadcast \
+            2>&1 | tee /tmp/settle.log
+          rm -f .env
+          {
+            echo '### aria-settle'
+            echo '```'
+            grep -E 'aria-settle:|released=' /tmp/settle.log || echo 'no workflow output'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
