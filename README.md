@@ -153,10 +153,26 @@ the claims (the exact text that goes onchain), pick a budget and CPC/CPM bids, a
 by hand works too. The campaign page shows spend, remaining budget,
 impressions, clicks, CTR, every sponsored sentence with its receipt, Dispute and End campaign.
 
-Funding is honest test funding: "This is a test network. No card is charged." Aria's treasury server wallet is the
-onchain advertiser for console campaigns and acts for the brand (custodial, test mode); launching is one
-`createCampaign` transaction that moves the budget into escrow. A new campaign joins the list the AI picks from
-immediately.
+**Wallet-funded campaigns** (`ADVERTISER_FUNDING=wallet`, the live site). The advertiser's own Privy embedded
+wallet, created at email sign-in, is the onchain advertiser. **Fund and launch** shows the wallet's address and
+its USDC and MON next to what the launch needs; **Launch** has the wallet approve the exact budget (skipped when
+the allowance covers it) and call `createCampaign`, each behind Privy's confirmation prompt, so the brand's own
+USDC moves into escrow. The server builds the call, keeps the campaign pending, and makes it live only after it
+reads the receipt: one `CampaignCreated` log from AriaClearing whose advertiser is the caller's embedded wallet
+(looked up server-side from the Privy user id, never taken from the browser) and whose claims hash, prices and
+budget match what was prepared. Dispute and End campaign are signed by the same wallet and checked the same way.
+Gas is paid in MON with explicit limits (estimate + 20 %), since Monad charges the full limit.
+
+On this test network, **Add test funds** sends the budget in test USDC and enough MON for the launch, a few
+disputes and End from Aria's deployer key (once per account by default, `ARIA_TEST_FUNDS_PER_USER`, and within
+`ARIA_LAUNCH_MAX_USD`; the demo key skips both). It stands in for an onramp: in production an onramp provider funds
+this wallet from a card payment, and the top-up step disappears for the brand.
+
+**Treasury fallback** (`ADVERTISER_FUNDING=treasury`, the default). Funding is honest test funding: "This is a
+test network. No card is charged." Aria's treasury server wallet is the onchain advertiser and acts for the brand
+(custodial, test mode); launching is one `createCampaign` transaction that moves the budget into escrow.
+
+Either way, a new campaign joins the list the AI picks from as soon as it is live.
 
 ## How it uses Monad
 
