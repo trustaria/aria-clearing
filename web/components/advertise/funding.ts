@@ -1,8 +1,13 @@
-import type { ConfirmResult, PrepareResult, Prepared } from "../../lib/advertise-client";
+import type { ConfirmResult, FundingMode, PrepareResult, Prepared, WalletInfo } from "../../lib/advertise-client";
 import { dollars, launchErrorCopy } from "./rules";
 
 /** USDC units (6 decimals) and MON wei held by the advertiser's wallet. */
 export type Balances = { usdc: bigint; mon: bigint };
+
+/** True in wallet mode until the server reports the advertiser's wallet; Privy creates a new user's wallet shortly after sign-in. */
+export function walletPending(funding: FundingMode, wallet: WalletInfo | null): boolean {
+  return funding === "wallet" && !wallet?.address;
+}
 
 export type TestFundsState = { phase: "idle" } | { phase: "sending" } | { phase: "sent" } | { phase: "error"; message: string };
 

@@ -8,12 +8,10 @@ import { useAdvertiserWallet } from "./useAdvertiserWallet";
 import type { WalletLaunchArgs } from "./Wizard";
 
 const UNITS_PER_CENT = 10_000n;
-/** Time the finished progress and the escrow link stay on screen before the campaign page opens. */
-const LIVE_PAUSE_MS = 2_000;
 
 /** The wallet-funded launch step: the advertiser's wallet balances, test funds and the launch itself. */
 export default function WalletLaunch({ client, args }: { client: AdvertiseClient; args: WalletLaunchArgs }) {
-  const { budgetCents, input, wallet, onBack, onLaunched, onBusy } = args;
+  const { budgetCents, input, wallet, onBack, onLaunched, onBusy, refreshWallet } = args;
   const funds = useAdvertiserWallet(wallet, BigInt(budgetCents) * UNITS_PER_CENT, true);
   const [testFunds, setTestFunds] = useState<TestFundsState>({ phase: "idle" });
   const [launch, dispatch] = useReducer(reduceLaunch, IDLE_LAUNCH);
@@ -36,10 +34,7 @@ export default function WalletLaunch({ client, args }: { client: AdvertiseClient
       confirm: (slug: string, txHash: string) => client.confirm(slug, txHash),
     };
     const slug = await runWalletLaunch(ops, dispatch, budgetCents, launch.unconfirmed);
-    if (slug) {
-      setTimeout(() => onLaunched(slug), LIVE_PAUSE_MS);
-      return;
-    }
+    if (slug) return;
     running.current = false;
     onBusy(false);
     void funds.refresh();
@@ -55,9 +50,13 @@ export default function WalletLaunch({ client, args }: { client: AdvertiseClient
       testFunds={testFunds}
       launch={launch}
       onAddTestFunds={() => void addTestFunds()}
-      onCheckAgain={() => void funds.refresh()}
+      onCheckAgain={() => {
+        if (!wallet.address) refreshWallet();
+        void funds.refresh();
+      }}
       onBack={onBack}
       onLaunch={() => void start()}
+      onOpenCampaign={onLaunched}
     />
   );
 }

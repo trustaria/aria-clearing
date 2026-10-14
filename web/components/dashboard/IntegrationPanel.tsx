@@ -3,17 +3,29 @@
 import { useState } from "react";
 import { Section } from "../receipt/ReceiptDocument";
 
-/** How Nova, the reference chat app in this repo, adds Aria (web/components/Chat.tsx). */
-export const INTEGRATION_SNIPPET = `const res = await fetch("/api/chat", {
-  method: "POST",
-  body: JSON.stringify({ messages }),
+const NPM_CORE = "https://www.npmjs.com/package/@trustaria/core";
+const NPM_REACT = "https://www.npmjs.com/package/@trustaria/react";
+const NPM_LINK = "font-mono underline underline-offset-2 hover:text-stone-900";
+
+/** How a publisher adds Aria with the published SDK, as Nova does in this repo. */
+export const INTEGRATION_SNIPPET = `// npm install @trustaria/core @trustaria/react
+
+// Server, in your chat route: ask Aria for an ad alongside your LLM call
+import { createAria } from "@trustaria/core";
+
+const aria = createAria({
+  apiKey: process.env.ARIA_SECRET_KEY!,
+  publisherId: "pub_nova",
+  baseUrl: process.env.ARIA_BASE_URL!,
 });
-// The answer streams as NDJSON; a "card" frame carries the served ad
-await readFrames(res, (frame) => {
-  if (frame.type === "text") appendAnswer(frame.delta);
-  if (frame.type === "card") setAd(frame.ad);
-});
-// Beacons the view to Aria; the click goes through Aria's redirect
+
+const adPromise = aria.serve({ prompt, context, sessionId });
+const answer = await callYourLlm(messages);
+const { ad } = await adPromise; // AdPayload | null, never throws
+
+// Browser: the view is beaconed straight to Aria; the click goes through Aria's redirect
+import { AriaAdCard } from "@trustaria/react";
+
 {ad && <AriaAdCard ad={ad} appearance="blockquote" clickArea="card" />}`;
 
 export default function IntegrationPanel({ publisherId }: { publisherId: string | null }) {
@@ -44,7 +56,7 @@ export default function IntegrationPanel({ publisherId }: { publisherId: string 
 
         <div className="overflow-hidden rounded-lg border border-stone-200 bg-white">
           <div className="flex items-center justify-between border-b border-stone-200 px-4 py-2">
-            <span className="text-xs text-stone-500">Example from Nova, this repo&apos;s chat app</span>
+            <span className="text-xs text-stone-500">Aria SDK, as Nova uses it</span>
             <button
               type="button"
               onClick={copy}
@@ -58,9 +70,14 @@ export default function IntegrationPanel({ publisherId }: { publisherId: string 
           </pre>
         </div>
         <p className="text-xs leading-relaxed text-stone-500">
-          <span className="font-mono">/api/chat</span> answers and asks Aria for the ad;{" "}
-          <span className="font-mono">AriaAdCard</span> from <span className="font-mono">@trustaria/react</span> renders
-          it, and Nova adds its receipt beside it.
+          <a href={NPM_CORE} target="_blank" rel="noopener noreferrer" className={NPM_LINK}>
+            @trustaria/core<span className="sr-only"> (opens in a new tab)</span>
+          </a>{" "}
+          runs on your server next to the LLM call;{" "}
+          <a href={NPM_REACT} target="_blank" rel="noopener noreferrer" className={NPM_LINK}>
+            @trustaria/react<span className="sr-only"> (opens in a new tab)</span>
+          </a>{" "}
+          renders the card and measures the view. Nova adds its receipt beside the card.
         </p>
       </div>
     </Section>

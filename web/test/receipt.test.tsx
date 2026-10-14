@@ -81,6 +81,12 @@ describe("SponsoredCard", () => {
   const html = renderToStaticMarkup(<SponsoredCard ad={ad} receipt={card.receipt} />);
   const tag = (pattern: RegExp) => html.match(pattern)?.[0] ?? "";
 
+  it("follows the colour scheme in the chat and keeps light colours on the console's white preview", () => {
+    expect(tag(/<div data-aria-card[^>]*>/)).not.toContain("nova-ad-light");
+    const preview = renderToStaticMarkup(<SponsoredCard ad={ad} receipt={card.receipt} inert />);
+    expect(preview.match(/<div data-aria-card[^>]*>/)?.[0]).toContain("nova-ad-light");
+  });
+
   it("embeds a receipt whose rationaleHash matches the rendered sentence", () => {
     const json = html.match(/<script type="application\/json" data-aria-receipt(?:="[^"]*")?>(.*?)<\/script>/)?.[1];
     expect(json).toBeDefined();

@@ -32,6 +32,14 @@
   }
 }
 
+/* Light colours whatever the colour scheme, for cards shown on white panels. */
+.nova-ad.nova-ad-light {
+  --aria-fg: #404040;
+  --aria-accent: #171717;
+  --aria-border: #e5e5e5;
+  --aria-border-left: #d4d4d4;
+}
+
 /* Demo bar dismissal, set on <html> by lib/demo-bar.ts. */
 html[data-demo-bar="hidden"] .demo-bar {
   display: none;
