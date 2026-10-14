@@ -128,19 +128,24 @@ shows only what was logged.
 
 1. **Escrow.** An advertiser funds a campaign in USDC; `createCampaign` stores the claims hash and emits the
    claims text.
-2. **Logging.** When the card has been at least 50 % visible for 1 s, or is clicked through Aria's redirect,
-   Aria's relayer calls `logEvent`. The relayer is a **Privy server wallet** whose **Privy policy** allows exactly
-   one call: `logEvent` on this contract, on Monad testnet. It cannot move money.
+2. **Logging.** When the card reports an impression or a reader clicks through Aria's redirect, Aria checks the
+   event belongs to an ad it served and its relayer calls `logEvent`; what the browser measured is kept offchain
+   as the event's evidence, to be checked at settlement. The relayer is a **Privy server wallet** whose **Privy
+   policy** allows exactly one call: `logEvent` on this contract, on Monad testnet. It cannot move money.
 3. **Dispute window.** The advertiser can `dispute(eventId)` while the window is open. The window is set at deploy:
    20 s in the demo, so logged → verified → paid fits on screen; in production it would be hours to days, long
    enough for the advertiser's fraud tooling to review events, and still far faster than ad-network payment terms.
 4. **Verification.** A **Chainlink CRE workflow** reads all pending events in one call, fetches the evidence for
    those past the window (at most 15 per report) in one HTTP request to Aria's evidence endpoint, applies the
-   rule (impression: viewed ≥ 1 s at ≥ 50 %; click: went through the redirect), and writes one report through
-   the CRE forwarder (the mock forwarder on Monad testnet) to `onReport`. In this demo the workflow is not
-   deployed to a DON: a scheduled GitHub Action (`.github/workflows/settle.yml`) runs
-   `cre workflow simulate --broadcast` every 10 minutes, and it can be run by hand (see [Run it](#run-it)); the
-   report is sent from Aria's key.
+   offchain verification rules to each event, and writes one report through the CRE forwarder (the mock
+   forwarder on Monad testnet) to `onReport`. In this demo the workflow is not deployed to a DON: a scheduled
+   GitHub Action (`.github/workflows/settle.yml`) runs `cre workflow simulate --broadcast` every 10 minutes, and
+   it can be run by hand (see [Run it](#run-it)); the report is sent from Aria's key.
+
+   The rules are one function inside the workflow, so they grow without changing the report or the contract.
+   Today they apply the industry viewability standard (MRC): an impression counts if the card was in view for at
+   least 1 s at 50 % or more, a click if it went through Aria's redirect. Invalid-traffic checks join them in
+   production.
 5. **Payout.** In the same transaction, released events pay the app's account directly (`PaidOut`); rejected
    and disputed events return to the advertiser's budget. Aria's fee is taken only here, on verified events:
    20 % of the price, fixed when the contract is deployed (the constructor refuses more than 30 %). The app
