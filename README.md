@@ -216,11 +216,6 @@ beacon for a card that was never served is refused. A billable click is the card
 `/api/aria/click/<requestId>`; the card also posts each click to Nova's `/api/aria/card-events`, which forwards
 it to Aria's `POST /api/v1/events` as a signal that is not billed.
 
-**Gemini picks.** The serve API picks with one Gemini call (`GEMINI_MODEL`, default `gemini-3.6-flash`, minimal
-thinking, JSON output, 4 s timeout): the campaign, 1–2 claim numbers and one sentence built from them. Without
-`GEMINI_API_KEY`, or when the call fails or times out, it picks by campaign keywords instead. `pnpm --filter
-@aria-clearing/web eval:select` runs the selector against a fixed question set.
-
 **KIMI answers.** Nova's answers run on KIMI (`KIMI_MODEL`, `kimi-k2.6` in the demo) with thinking disabled, so
 replies start in about a second; Nova's system prompt holds no campaign data and tells the model never to mention
 ads. KIMI also drafts claims in the advertiser console. It does not pick the ad. A built-in limiter queues every
