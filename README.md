@@ -118,8 +118,8 @@ The check that matters is the one against what you saw. Pass either or both:
   `rationaleHash` are each compared with what was logged; the first line names any field that differs.
 
 It then recomputes the event id, the sentence hash and the claims hash from the logs and compares them with the
-contract's own state. The contract computes those hashes itself when it logs, so this part only shows the logged
-record is internally consistent; it passes for any logged event. Last comes the lifecycle with transaction hashes.
+contract's own state, which computed those hashes itself when it logged. Last comes the lifecycle with transaction
+hashes.
 Exit code 0 = no mismatch, 1 = mismatch, 2 = not found or bad arguments. The receipt page at `/receipt/<requestId>`
 runs the same comparison with the `h` and `c` values from the card's link; opened without them, it says so and
 shows only what was logged.
@@ -177,24 +177,22 @@ HTTP 400 {"error":"RPC request denied due to policy violation","code":"policy_vi
 
 Rules: `ops/src/policy.ts`. Probes: `pnpm --filter @aria-clearing/ops privy:probe` and `privy:treasury-probe`.
 
-### What is verified today — and what production adds
+### What's next
 
-| Verified before money moves | Not verified yet |
-|---|---|
-| The event was logged once, by the relayer (contract) | Invalid-traffic signals (bots, headless browsers, datacenter IPs): more rules for the same workflow |
-| An impression from the card's beacon carries a token Aria signed for a request it served (Aria's server, before logging) | That every impression came through the beacon: an older route, `POST /api/aria/events`, still logs an impression for a served request without a token |
-| Impressions met the viewability rule in the evidence | That the evidence endpoint tells the truth: it is Aria's |
-| Clicks went through Aria's redirect | Independent parties: every key is Aria's in this demo, and the hosted Envio indexer the dashboards read is Aria's deployment (the contract stays the source of truth, and `indexer/` runs anywhere) |
-| The relayer cannot pay anyone (contract roles + Privy policy) | Decentralised execution: the workflow runs in CRE simulation on a 10-minute GitHub Actions schedule (best effort, so a run can be late), not on a DON, and the Monad testnet mock forwarder is permissionless |
-| The sentence you pass (`--sentence`, `--receipt`, or the card's `?h=` link) equals the one logged for that request | Without that input, only that the logged record is internally consistent: the contract hashes what it logs |
-| | That the sentence is a faithful reading of the claims: an LLM wrote it, citing claim numbers |
-| | That the ad choice is production-grade: the serve API's selector is a single Gemini call (keywords as fallback), not Aria's production classifier and auction |
-| The dispute window passed without a dispute | That viewability was measured honestly: the app's page measures it and reports it, and the app's server also receives the token in the serve response; the workflow checks the rule, not the measurement |
-| | Settlement routing: the owner can change the forwarder, and with the permissionless mock forwarder anyone could post a far-future `reportedAt` and stall later reports |
-| | Fair disputes: in the demo a dispute is a free advertiser veto and is always refunded; production needs a bond or an arbiter, and automated disputes by the advertiser's fraud tooling |
-
-Next steps toward production: a second, independent evidence source (advertiser conversion postbacks); per-epoch
-Merkle roots instead of one transaction per event; a deployed DON with the production forwarder.
+- **More verification rules.** Invalid-traffic checks (bot and headless-browser signals, datacenter IPs,
+  per-publisher baselines) join the viewability rule in the workflow's rule function; the report and the contract
+  stay the same.
+- **Advertiser evidence.** The advertiser's server, or its attribution vendor, posts a signed landing and
+  conversion postback for each request. The workflow fetches it as a second evidence source under the same
+  consensus, so a click is paid only when the advertiser saw it land.
+- **Independent verifiers.** Third-party verification vendors plug in the same way, as more evidence sources.
+- **Evidence committed onchain.** `logEvent` also stores a hash of the evidence record; at scale, one Merkle root
+  per batch.
+- **Settlement on a Chainlink DON.** `aria-settle` deploys to the CRE network with the production forwarder, which
+  verifies DON signatures, and the DON runs the 30 s cron itself.
+- **Disputes with reasons.** A dispute becomes a claim checked like any event, backed by a bond, and filed
+  automatically by the advertiser's fraud tooling.
+- **Production ad selection.** Aria's classifier and auction behind the same serve API.
 
 ## How the ad is served
 
