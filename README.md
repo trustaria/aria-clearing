@@ -9,10 +9,38 @@ alone, and it pays the app only after a Chainlink CRE workflow has checked the e
 
 Track: **Trust, Identity & AI Infrastructure** (Metropolis hackathon).
 
+- Live app: https://web-production-95cf9.up.railway.app
 - Contract (Monad testnet, source verified): [`0x431e97E2EB23ac06C9f807cC8DCe54499C1bDC7B`](https://testnet.monadvision.com/address/0x431e97E2EB23ac06C9f807cC8DCe54499C1bDC7B)
-- Live app: https://web-production-95cf9.up.railway.app (demo overview at `/`, Nova at `/ai-chat`, publisher dashboard at `/dashboard`, advertiser console at `/advertise`)
 - Indexer (Envio Cloud, GraphQL): https://indexer.dev.hyperindex.xyz/eca926f/v1/graphql
+- Publisher SDK on npm: [`@trustaria/core`](https://www.npmjs.com/package/@trustaria/core),
+  [`@trustaria/react`](https://www.npmjs.com/package/@trustaria/react)
 - Demo video: _link added at submission_
+
+Words used below: the **publisher** is the AI app that shows the sponsored line (Nova, `/ai-chat`, in this demo);
+the **advertiser** is the brand whose claims it cites; a **receipt** is the onchain record of one sponsored line;
+an event is **verified** when the CRE workflow released it and **rejected** when it refunded it.
+
+## Try it in two minutes
+
+The live site is one Next.js app with a demo bar on every page: `/` is the overview, `/ai-chat` is Nova (the
+publisher), `/dashboard` is Aria's publisher dashboard, `/advertise` is Aria's advertiser console, and
+`/receipt/<requestId>` is a receipt.
+
+1. Ask [Nova](https://web-production-95cf9.up.railway.app/ai-chat) a buying question, e.g. "Is an e-bike worth
+   it for a 12 km commute?". The answer streams from KIMI; a sponsored card follows it.
+2. Click **Why this ad?** on the card to open its receipt: the sentence, the claims it cites, and its onchain
+   status.
+3. Settlement runs every 10 minutes (a scheduled GitHub Action runs the Chainlink CRE workflow; GitHub's schedule
+   is best effort, so a run can be late). After the next run the receipt says **Verified** and the
+   [publisher dashboard](https://web-production-95cf9.up.railway.app/dashboard) shows it paid: 80 % to the app,
+   20 % Aria's fee.
+4. Launch your own campaign in the
+   [advertiser console](https://web-production-95cf9.up.railway.app/advertise): paste a website, KIMI drafts the
+   claims, test funds are added to your embedded wallet, and your wallet escrows the budget.
+
+The dashboard and the console sign in with an email and a one-time code (Privy). Both sign-in screens show a
+shared test account whose code is fixed, so no email is sent; any other email works too. Launches and test funds
+are counted per account, so use your own email for step 4 if the shared account has used its launches.
 
 ## The receipt
 
@@ -79,7 +107,8 @@ pnpm --filter @aria-clearing/receipt verify req_36wX7fR79VnTOVHwllgYhA \
 The check that matters is the one against what you saw. Pass either or both:
 
 - `--sentence "<text you saw>"`: hashed with the recipe above (trimmed, NFC) and compared with the logged
-  `rationaleHash`. Change one word and the first line becomes `✗ Mismatch: rationaleHash differs from what was logged`.
+  `rationaleHash`. Change one word and the first line becomes
+  `✗ Mismatch: rationaleHash differs from what was logged`.
 - `--receipt '<data-aria-receipt JSON>'`: the card's `chainId`, `contract`, `campaignId`, `claimsHash` and
   `rationaleHash` are each compared with what was logged; the first line names any field that differs.
 
@@ -101,11 +130,12 @@ shows only what was logged.
    20 s in the demo, so logged → verified → paid fits on screen; in production it would be hours to days, long
    enough for the advertiser's fraud tooling to review events, and still far faster than ad-network payment terms.
 4. **Verification.** A **Chainlink CRE workflow** reads all pending events in one call, fetches the evidence for
-   those past the window (at most 15 per report) in one HTTP request to Aria's evidence endpoint, applies the rule
-   (impression: viewed ≥ 1 s at ≥ 50 %; click: went through the redirect), and writes one report through the CRE
-   forwarder (the mock forwarder on Monad testnet) to `onReport`. In this demo the workflow is not deployed to a
-   DON: a scheduled GitHub Action (`.github/workflows/settle.yml`) runs `cre workflow simulate --broadcast` every
-   10 minutes, and it can be run by hand (see [Run it](#run-it)); the report is sent from Aria's key.
+   those past the window (at most 15 per report) in one HTTP request to Aria's evidence endpoint, applies the
+   rule (impression: viewed ≥ 1 s at ≥ 50 %; click: went through the redirect), and writes one report through
+   the CRE forwarder (the mock forwarder on Monad testnet) to `onReport`. In this demo the workflow is not
+   deployed to a DON: a scheduled GitHub Action (`.github/workflows/settle.yml`) runs
+   `cre workflow simulate --broadcast` every 10 minutes, and it can be run by hand (see [Run it](#run-it)); the
+   report is sent from Aria's key.
 5. **Payout.** In the same transaction, released events pay the app's account directly (`PaidOut`); rejected
    and disputed events return to the advertiser's budget. Aria's fee is taken only here, on verified events:
    20 % of the price, fixed when the contract is deployed (the constructor refuses more than 30 %). The app
@@ -144,8 +174,8 @@ Rules: `ops/src/policy.ts`. Probes: `pnpm --filter @aria-clearing/ops privy:prob
 | The event was logged once, by the relayer (contract) | That a human saw the card |
 | An impression from the card's beacon carries a token Aria signed for a request it served (Aria's server, before logging) | That every impression came through the beacon: an older route, `POST /api/aria/events`, still logs an impression for a served request without a token |
 | Impressions met the viewability rule in the evidence | That the evidence endpoint tells the truth: it is Aria's |
-| Clicks went through Aria's redirect | Independent parties: every key is Aria's in this demo |
-| The relayer cannot pay anyone (contract roles + Privy policy) | Decentralised execution: the workflow runs in CRE simulation on a 10-minute GitHub Actions schedule, not on a DON, and the Monad testnet mock forwarder is permissionless |
+| Clicks went through Aria's redirect | Independent parties: every key is Aria's in this demo, and the hosted Envio indexer the dashboards read is Aria's deployment (the contract stays the source of truth, and `indexer/` runs anywhere) |
+| The relayer cannot pay anyone (contract roles + Privy policy) | Decentralised execution: the workflow runs in CRE simulation on a 10-minute GitHub Actions schedule (best effort, so a run can be late), not on a DON, and the Monad testnet mock forwarder is permissionless |
 | The sentence you pass (`--sentence`, `--receipt`, or the card's `?h=` link) equals the one logged for that request | Without that input, only that the logged record is internally consistent: the contract hashes what it logs |
 | | That the sentence is a faithful reading of the claims: an LLM wrote it, citing claim numbers |
 | | That the ad choice is production-grade: the serve API's selector is a single Gemini call (keywords as fallback), not Aria's production classifier and auction |
@@ -155,6 +185,40 @@ Rules: `ops/src/policy.ts`. Probes: `pnpm --filter @aria-clearing/ops privy:prob
 
 Next steps toward production: a second, independent evidence source (advertiser conversion postbacks); per-epoch
 Merkle roots instead of one transaction per event; a deployed DON with the production forwarder.
+
+## How the ad is served
+
+**Nova gets its ad through the SDK.** Nova is a publisher: its chat route calls Aria's serve API through Aria's
+publisher SDK, `@trustaria/core` (`createAria(...).serve({ prompt, context, sessionId })`), at the same time as it
+starts its own answer. The serve API (`POST /api/v1/serve`, Bearer `ARIA_API_KEY`) picks at most one live campaign
+independently of the answer, records the served sentence for the clearing, and answers with the ad (or a typed
+no-fill); Nova re-validates it against the campaign's claims and shows the card after the answer. A no-fill, a
+timeout (Nova's budget is `ARIA_SERVE_TIMEOUT_MS`, default 6 s) or an error only means no card. By default Nova
+calls its own server (`ARIA_BASE_URL` points it elsewhere); set `ARIA_PUBLIC_URL` to the public origin so the ad's
+click, why and beacon URLs are absolute public links (the card follows them as served, so a deployed server needs
+it). The dashboard's Integration panel shows the same few lines a publisher adds.
+
+**The card.** Nova renders the served ad with `@trustaria/react`'s `AriaAdCard` (blockquote style, the whole card
+clickable) and puts the receipt JSON beside it. The impression is measured in the browser: at least 50 % of the
+card visible for one continuous second, with the tab and the "Sponsored" disclosure visible. The card then
+beacons it straight to Aria's `POST /api/v1/beacon` with the ad's signed impression token (an HMAC of the request
+id under `ARIA_TOKEN_SECRET`); Aria checks the token and that it served that request, and logs the impression
+onchain with the measured dwell and visible ratio as its evidence. A request gets at most one impression: a
+repeated beacon is accepted and ignored. The token shows the impression belongs to an ad Aria served; it does not
+show that a person saw it. A billable click is the card's link through Aria's redirect,
+`/api/aria/click/<requestId>`; the card also posts each click to Nova's `/api/aria/card-events`, which forwards
+it to Aria's `POST /api/v1/events` as a signal that is not billed.
+
+**Gemini picks.** The serve API picks with one Gemini call (`GEMINI_MODEL`, default `gemini-3.6-flash`, minimal
+thinking, JSON output, 4 s timeout): the campaign, 1–2 claim numbers and one sentence built from them. Without
+`GEMINI_API_KEY`, or when the call fails or times out, it picks by campaign keywords instead. `pnpm --filter
+@aria-clearing/web eval:select` runs the selector against a fixed question set.
+
+**KIMI answers.** Nova's answers run on KIMI (`KIMI_MODEL`, `kimi-k2.6` in the demo) with thinking disabled, so
+replies start in about a second; Nova's system prompt holds no campaign data and tells the model never to mention
+ads. KIMI also drafts claims in the advertiser console. It does not pick the ad. A built-in limiter queues every
+KIMI call to fit low rate-limit accounts (defaults: 3 requests per minute, 1 at a time; raise `KIMI_RPM` and
+`KIMI_CONCURRENCY` on a higher tier). When KIMI is busy, Nova shows a short fallback answer and says so.
 
 ## Advertisers
 
@@ -178,16 +242,30 @@ reads the receipt: one `CampaignCreated` log from AriaClearing whose advertiser 
 budget match what was prepared. Dispute and End campaign are signed by the same wallet and checked the same way.
 Gas is paid in MON with explicit limits (estimate + 20 %), since Monad charges the full limit.
 
-On this test network, **Add test funds** sends the budget in test USDC and enough MON for the launch, a few
-disputes and End from Aria's deployer key (once per account by default, `ARIA_TEST_FUNDS_PER_USER`, and within
-`ARIA_LAUNCH_MAX_USD`; the demo key skips both). It stands in for an onramp: in production an onramp provider funds
+On this test network, **Add test funds** sends the budget in test USDC and enough MON for the launch, two
+disputes and End from Aria's deployer key. It stands in for an onramp: in production an onramp provider funds
 this wallet from a card payment, and the top-up step disappears for the brand.
+
+**Launch caps.** Test funds go out once per account by default (`ARIA_TEST_FUNDS_PER_USER`); a campaign's budget is
+capped by `ARIA_LAUNCH_MAX_USD` and launches per account by `ARIA_LAUNCH_PER_USER` (unset means no cap; the live
+site sets both, and the console says so when a cap is reached). Requests carrying the demo key skip all three.
 
 **Treasury fallback** (`ADVERTISER_FUNDING=treasury`, the default). Funding is honest test funding: "This is a
 test network. No card is charged." Aria's treasury server wallet is the onchain advertiser and acts for the brand
 (custodial, test mode); launching is one `createCampaign` transaction that moves the budget into escrow.
 
 Either way, a new campaign joins the list Aria's serve API picks from as soon as it is live.
+
+## Sponsor integrations
+
+| Sponsor | What it does here | Real or simulated | Where to look |
+|---|---|---|---|
+| **Monad** | Escrow, the event log, disputes, settlement and payouts in `AriaClearing`; native USDC | Live on Monad testnet, source verified | `contracts/src/AriaClearing.sol`; the [contract](https://testnet.monadvision.com/address/0x431e97E2EB23ac06C9f807cC8DCe54499C1bDC7B) and its logs |
+| **Chainlink CRE** | `aria-settle` workflow: cron → one EVM read of pending events → one HTTP evidence fetch with identical-result consensus → rule → `writeReport` through the forwarder to `onReport` | CLI simulation with `--broadcast` against the live contract, scheduled every 10 minutes by `.github/workflows/settle.yml`; not deployed to a DON (no deploy access); one node, so consensus is declared, not agreed; testnet mock forwarder | `cre/aria-settle/src/workflow.ts`, `rule.ts`; a reviewed real run with transaction links in [`cre/README.md`](cre/README.md#a-real-run-on-monad-testnet); the Actions tab |
+| **Privy** | Email sign-in and embedded wallets for publishers (payout address) and advertisers (the wallet that escrows the budget, two confirmation prompts); two server wallets owned by an authorization key with deny-by-default policies (relayer: `logEvent` only; treasury: escrow calls only) | Real: `@privy-io/react-auth` 2.14.2 in the browser, `@privy-io/node` 0.35.0 on the server; the policy denial is Privy's own response | `ops/src/policy.ts`, `ops/src/relayer.ts`, `web/lib/advertiser-wallet.ts`, `web/components/advertise/useAdvertiserWallet.ts`; "Relayer tries to pay" in the debug bar |
+| **Envio** | HyperIndex over all nine contract events: campaigns, each event's lifecycle with its sentence, and a per-publisher verification rate (trust score); feeds the dashboard's totals and activity feed, the campaign page's counts and sentences, and the trust line on every receipt | Real: hosted on Envio Cloud (the endpoint above), synced from the deploy block; logs fallback when it is down | `indexer/`, `web/lib/envio.ts`, `web/lib/dashboard-data.ts`, `web/lib/advertiser-data.ts`; "Indexed by Envio HyperIndex" under Account details |
+| **KIMI** | Writes Nova's answers (`kimi-k2.6`, thinking off, streamed) and drafts the advertiser's brand, description, claims, category and topics from its website | Real API calls through the OpenAI-compatible endpoint; a labelled stub only in local dev without a key | `web/lib/kimi.ts`, `web/lib/claims-draft.ts`, `web/lib/site-reader.ts`; "Answers by KIMI" in Nova, "Read my website" in the console |
+| Gemini | One call per serve request picks the campaign and writes the sentence from its claims | Real; keyword fallback without a key | `web/lib/serve/gemini.ts`, `web/lib/serve/select.ts` |
 
 ## How it uses Monad
 
@@ -238,22 +316,23 @@ graph LR
 | `ops/` | Privy server wallets (relayer, advertiser treasury), their policies, probes and `sendFromWallet()` |
 | `web/` | Nova (the reference AI app, a publisher using `@trustaria/core` and `@trustaria/react`), Aria's API routes including the serve API and the impression beacon, the receipt page, the publisher dashboard and the advertiser console |
 | `deployments/` | `10143.json`: the live contract address and deploy block |
+| `.github/workflows/` | `settle.yml`: the scheduled settlement run |
+| `scripts/` | `env-check.mjs` (lists missing variables, never values) and `demo.mjs` (`reset` archives the local event log, `warm` loads every page) |
 
 ## Technology
 
-Monad testnet · Solidity 0.8.28 + Foundry · OpenZeppelin · Chainlink CRE (TypeScript SDK, `cre` CLI) · Privy
-(server wallets, policies, email login with embedded wallets) · Envio HyperIndex (dashboard totals, activity feed,
-trust score; campaign page counts and sentences) · KIMI (`kimi-k2.6`, Moonshot AI) · Gemini (Flash, through its
-OpenAI-compatible API) · `@trustaria/core` and `@trustaria/react` (Aria's publisher SDK) · Next.js 14 + React 18 ·
-viem · USDC.
+Monad testnet · Solidity 0.8.28 + Foundry · OpenZeppelin 5.4 · Chainlink CRE (TypeScript SDK, `cre` CLI) ·
+Privy (server wallets, policies, email login with embedded wallets) · Envio HyperIndex 3.14 · KIMI (`kimi-k2.6`,
+Moonshot AI) · Gemini (Flash, through its OpenAI-compatible API) · `@trustaria/core` and `@trustaria/react` 0.3
+(Aria's publisher SDK) · Next.js 14 + React 18 · viem · USDC.
 
 ## Run it
 
-Requirements: Node ≥ 22.15, pnpm 10, Foundry ≥ 1.8, bun ≥ 1.2.21 and the `cre` CLI (for settlement), Docker (for
-the indexer).
+Requirements: Node ≥ 22.15, pnpm 10, Foundry (a current release; `contracts/foundry.lock` pins the libraries),
+bun ≥ 1.2.21 and the `cre` CLI (for settlement), Docker (for the indexer).
 
 ```bash
-git clone --recurse-submodules <this repo>   # contracts/lib are git submodules
+git clone --recurse-submodules https://github.com/trustaria/aria-clearing   # contracts/lib are git submodules
 pnpm install
 cp .env.example .env.local      # fill in the values; `pnpm env:check` lists what is missing
 pnpm dev                        # http://localhost:3000 — demo overview; /ai-chat (Nova); /dashboard; /advertise; /receipt/<requestId>
@@ -261,48 +340,20 @@ pnpm dev                        # http://localhost:3000 — demo overview; /ai-c
 
 **With no secrets at all** you can still: run every test suite; `verify` any receipt from the public RPC; and
 `pnpm dev` to open receipt pages and Nova on its clearly labelled stub model (the stub runs in dev only, never
-under `next start`), with cards picked by keyword under a built-in dev key. Logging events and the dashboards need a
-Privy app (`NEXT_PUBLIC_PRIVY_APP_ID`, `PRIVY_APP_SECRET`, `PRIVY_AUTHORIZATION_KEY`) and the relayer server
-wallet (`privy:relayer`, below); real answers need `KIMI_API_KEY` and `KIMI_MODEL`; cards under `next start` need
-`ARIA_API_KEY` and `ARIA_TOKEN_SECRET`; Gemini picks need `GEMINI_API_KEY`; settlement needs `cre login` and a
-funded key in `cre/.env`; the indexer needs Docker and `ENVIO_API_TOKEN`.
-
-**How Nova gets its ad.** Nova is a publisher: its chat route calls Aria's serve API through Aria's publisher SDK,
-`@trustaria/core` (`createAria(...).serve({ prompt, context, sessionId })`), at the same time as it starts its own
-answer. The serve API (`POST /api/v1/serve`, Bearer `ARIA_API_KEY`) picks at most one live campaign independently
-of the answer, records the served sentence for the clearing, and answers with the ad (or a typed no-fill); Nova
-re-validates it against the campaign's claims and shows the card after the answer. A no-fill, a timeout (Nova's
-budget is `ARIA_SERVE_TIMEOUT_MS`, default 6 s) or an error only means no card. By default Nova calls its own
-server (`ARIA_BASE_URL` points it elsewhere); set `ARIA_PUBLIC_URL` to the public origin so the ad's click, why and
-beacon URLs are absolute public links (the card follows them as served, so a deployed server needs it).
-
-**The card.** Nova renders the served ad with `@trustaria/react`'s `AriaAdCard` (blockquote style, the whole card
-clickable) and puts the receipt JSON beside it. The impression is measured in the browser: at least 50 % of the
-card visible for one continuous second, with the tab and the "Sponsored" disclosure visible. The card then
-beacons it straight to Aria's `POST /api/v1/beacon` with the ad's signed impression token (an HMAC of the request
-id under `ARIA_TOKEN_SECRET`); Aria checks the token and that it served that request, and logs the impression
-onchain with the measured dwell and visible ratio as its evidence. A request gets at most one impression: a
-repeated beacon is accepted and ignored. The token shows the impression belongs to an ad Aria served; it does not
-show that a person saw it. A billable click is the card's link through Aria's redirect,
-`/api/aria/click/<requestId>`; the card also posts each click to Nova's `/api/aria/card-events`, which forwards
-it to Aria's `POST /api/v1/events` as a signal that is not billed.
-
-**Gemini.** The serve API picks with one Gemini call (`GEMINI_MODEL`, default `gemini-3.6-flash`, minimal
-thinking, JSON output, 4 s timeout): the campaign, 1–2 claim numbers and one sentence built from them. Without
-`GEMINI_API_KEY`, or when the call fails or times out, it picks by campaign keywords instead. `pnpm --filter
-@aria-clearing/web eval:select` runs the selector against a fixed question set.
-
-**KIMI.** Nova's answers run on KIMI (`KIMI_MODEL`, `kimi-k2.6` in the demo) with thinking disabled, so replies
-start in about a second; KIMI also drafts claims in the advertiser console. It does not pick the ad. A built-in
-limiter queues every KIMI call to fit low rate-limit accounts (defaults: 3 requests per minute, 1 at a time; raise
-`KIMI_RPM` and `KIMI_CONCURRENCY` on a higher tier).
+under `next start`), with cards picked by keyword under a built-in dev key. Logging events and the dashboards
+need a Privy app (`NEXT_PUBLIC_PRIVY_APP_ID`, `PRIVY_APP_SECRET`, `PRIVY_AUTHORIZATION_KEY`) and the relayer
+server wallet (`privy:relayer`, below); real answers need `KIMI_API_KEY` and `KIMI_MODEL`; cards under
+`next start` need `ARIA_API_KEY` and `ARIA_TOKEN_SECRET`; Gemini picks need `GEMINI_API_KEY`; settlement needs
+`cre login` and a funded key in `cre/.env`; the indexer needs Docker and `ENVIO_API_TOKEN`. A Privy test account
+(`NEXT_PUBLIC_DEMO_LOGIN_EMAIL` and `_CODE`, both or neither) is shown on the sign-in screens when set.
 
 **Single-tenant demo server.** The web app holds the relayer's and the treasury's credentials and the deployer
-key. Its demo controls (forge, dispute, "Relayer tries to pay", publisher registration) are open unless
-`ARIA_DEMO_KEY` is set; with it set, as on the live site, they need the key. Set it before hosting a copy anywhere
-public.
+key, and keeps its served cards, events and campaigns in JSON files under `web/.data` (`ARIA_DATA_DIR`). Its demo
+controls (forge, dispute, "Relayer tries to pay", publisher registration) are open unless `ARIA_DEMO_KEY` is set;
+with it set, as on the live site, they need the key. Set it before hosting a copy anywhere public. The live site
+runs the `Dockerfile` on Railway (`railway.json`).
 
-Settle pending events (after the dispute window). The `settle` GitHub Action does this every 10 minutes for the
+**Settle pending events** (after the dispute window). The `settle` GitHub Action does this every 10 minutes for the
 live contract (secrets in [`cre/README.md`](cre/README.md#scheduled-settlement)); to run the CRE workflow once,
 locally:
 
@@ -315,7 +366,7 @@ cre workflow simulate ./aria-settle -T staging-settings --non-interactive --trig
 The mock forwarder never reverts the outer transaction, so confirm settlement with the contract's
 `EventSettled` / `PaidOut` logs or with `verify`, not with the simulator's status line.
 
-Run the indexer (Envio HyperIndex, Docker; the dashboard's totals, full activity feed and trust score, the
+**Run the indexer** (Envio HyperIndex, Docker; the dashboard's totals, full activity feed and trust score, the
 campaign page's full history, and the trust score on the receipt page):
 
 ```bash
@@ -325,49 +376,52 @@ pnpm --filter @aria-clearing/indexer start         # GraphQL on http://localhost
 ```
 
 If ports 8080/5433 are taken, set `HASURA_EXTERNAL_PORT`, `ENVIO_PG_PORT` and `HASURA_GRAPHQL_ENDPOINT` before
-starting, and point `ENVIO_GRAPHQL_URL` at the new port. When the indexer is down the dashboard reads totals and
-activity, and the campaign page its counts and sentences, from the last ~2 hours of contract logs instead; the
-dashboard hides the trust score. Each page names its source under Account details ("Indexed by Envio HyperIndex"
-or "Read from contract logs"). A schema change needs a full resync:
+starting, and point `ENVIO_GRAPHQL_URL` at the new port. When the indexer is down (3 s timeout) the dashboard reads
+totals and activity, and the campaign page its counts and sentences, from the last ~2 hours of contract logs
+instead; the dashboard hides the trust score. Each page names its source under Account details ("Indexed by Envio
+HyperIndex" or "Read from contract logs"). A schema change needs a full resync:
 `pnpm --filter @aria-clearing/indexer resync`.
 
-Deploy your own copy: see `contracts/README.md` (deploy, Sourcify verification, seed);
+**Deploy your own copy:** see `contracts/README.md` (deploy, Sourcify verification, seed);
 `pnpm --filter @aria-clearing/ops privy:relayer` then `privy:policy` for the relayer, and `privy:treasury` for the
 advertiser treasury (the default funding mode). These scripts need `PRIVY_AUTHORIZATION_ID` (the authorization
 key's id) and append the wallet ids and addresses they create (`RELAYER_WALLET_ID`, `RELAYER_ADDRESS`,
 `TREASURY_WALLET_ID`, `TREASURY_ADDRESS`, …) to `.env.local`.
 
-Tests: `pnpm test` (receipt, indexer, ops, web; the indexer needs Node ≥ 22.15), `cd contracts && forge test`,
-`cd cre/aria-settle && bun install && bun test`.
+**Tests:** `pnpm test` (receipt, indexer, ops, web; the indexer needs Node ≥ 22.15),
+`cd contracts && forge test`, `cd cre/aria-settle && bun install && bun test`.
 
 ## Demo controls
 
 `/ai-chat?debug=1` (or Ctrl+Shift+D) opens a debug bar; when `ARIA_DEMO_KEY` is set, as on the live site, only
-`/ai-chat?debug=<ARIA_DEMO_KEY>` opens it (`/?debug=…` redirects there). It has **Forge impression** (an impression posted for a card that was
-never seen, as a dishonest publisher backend could), **Dispute** (the advertiser disputes an event) and
-**Relayer tries to pay** (shows the Privy policy denial). Tick **Hold views** before forging, otherwise the
-card is viewed as soon as it appears; a held card sends its beacon to a sink that records nothing.
+`/ai-chat?debug=<ARIA_DEMO_KEY>` opens it (`/?debug=…` redirects there). It has **Forge impression** (an
+impression posted for a card that was never seen, as a dishonest publisher backend could), **Dispute** (the seed
+advertiser, Aria's deployer key, disputes the newest event still inside its window) and **Relayer tries to pay**
+(shows the Privy policy denial). Tick **Hold views** before forging, otherwise the card is viewed as soon as it
+appears; a held card sends its beacon to a sink that records nothing.
 
 ## Existing code
 
 - Starting point: the official Monad template
   [`next-serwist-privy-embedded-wallet`](https://github.com/monad-developers/next-serwist-privy-embedded-wallet)
-  (Next.js + Privy embedded wallet on Monad testnet).
-- `@trustaria/core`: Aria's publisher SDK, MIT, © 2026 Evermore Labs Co. Used as a dependency
+  (Next.js PWA + Privy embedded wallet on Monad testnet). The `PrivyProvider` (now email-only) and the PWA shell
+  remain; the rest was replaced.
+- `@trustaria/core` 0.3.0: Aria's publisher SDK, MIT, © 2026 Evermore Labs Co. Used as a dependency
   ([`@trustaria/core` on npm](https://www.npmjs.com/package/@trustaria/core)), not modified here.
-- `@trustaria/react`: Aria's React card for publishers (`AriaAdCard`, the events handler), MIT, © 2026 Evermore
-  Labs Co. Used as a dependency ([`@trustaria/react` on npm](https://www.npmjs.com/package/@trustaria/react)),
-  not modified here.
+- `@trustaria/react` 0.3.0: Aria's React card for publishers (`AriaAdCard`, the events handler), MIT, © 2026
+  Evermore Labs Co. Used as a dependency
+  ([`@trustaria/react` on npm](https://www.npmjs.com/package/@trustaria/react)), not modified here.
 
 Everything else in this repository was written for this hackathon.
 
 ## Credits
+
 - Libraries: OpenZeppelin Contracts, forge-std, viem, `@chainlink/cre-sdk`, `@privy-io/react-auth`,
   `@privy-io/node`, Envio, Next.js. The advertisers in the demo are fictional.
-- This project was built with the help of AI coding tools (Claude Code), as allowed by the hackathon rules: parallel
-  coding agents worked in separate git worktrees and their commits were merged onto `main`, which is why some
-  commits share timestamps.
+- This project was built with the help of AI coding tools (Claude Code), as allowed by the hackathon rules:
+  parallel coding agents worked in separate git worktrees and their commits were merged onto `main`, which is
+  why some commits share timestamps.
 
 ## License
 
-MIT — see `LICENSE`.
+MIT, © 2026 Evermore Labs Co (Aria) — see [`LICENSE`](LICENSE).
