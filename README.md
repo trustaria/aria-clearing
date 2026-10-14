@@ -52,8 +52,11 @@ Every sponsored line moves through one lifecycle, and every step is on Monad:
 issued (card rendered) → logged (impression / click) → verified · paid   or   rejected / disputed → refunded
 ```
 
-"Verified" means the Chainlink CRE workflow checked the event's evidence against the rule (see below); it does
-not prove that a person saw the card.
+"Verified" means the event passed every check before any money moved. Aria logs an event only for a request it
+served (the card's beacon also carries a token Aria signed); then the Chainlink CRE workflow checked the evidence
+against the settlement rule: an impression in view for 1 s at 50 % or more (the MRC viewability baseline), a click through Aria's
+redirect. The rule is one pure function inside the workflow, so stronger fraud checks plug into the same
+settlement path without changing the contract.
 
 A receipt binds three things together:
 
@@ -169,11 +172,11 @@ HTTP 400 {"error":"RPC request denied due to policy violation","code":"policy_vi
 
 Rules: `ops/src/policy.ts`. Probes: `pnpm --filter @aria-clearing/ops privy:probe` and `privy:treasury-probe`.
 
-### What is verified — and what is not
+### What is verified today — and what production adds
 
-| Verified before money moves | Not verified |
+| Verified before money moves | Not verified yet |
 |---|---|
-| The event was logged once, by the relayer (contract) | That a human saw the card |
+| The event was logged once, by the relayer (contract) | Invalid-traffic signals (bots, headless browsers, datacenter IPs): more rules for the same workflow |
 | An impression from the card's beacon carries a token Aria signed for a request it served (Aria's server, before logging) | That every impression came through the beacon: an older route, `POST /api/aria/events`, still logs an impression for a served request without a token |
 | Impressions met the viewability rule in the evidence | That the evidence endpoint tells the truth: it is Aria's |
 | Clicks went through Aria's redirect | Independent parties: every key is Aria's in this demo, and the hosted Envio indexer the dashboards read is Aria's deployment (the contract stays the source of truth, and `indexer/` runs anywhere) |
@@ -206,8 +209,8 @@ card visible for one continuous second, with the tab and the "Sponsored" disclos
 beacons it straight to Aria's `POST /api/v1/beacon` with the ad's signed impression token (an HMAC of the request
 id under `ARIA_TOKEN_SECRET`); Aria checks the token and that it served that request, and logs the impression
 onchain with the measured dwell and visible ratio as its evidence. A request gets at most one impression: a
-repeated beacon is accepted and ignored. The token shows the impression belongs to an ad Aria served; it does not
-show that a person saw it. A billable click is the card's link through Aria's redirect,
+repeated beacon is accepted and ignored. The token proves the impression belongs to an ad Aria served, so a
+beacon for a card that was never served is refused. A billable click is the card's link through Aria's redirect,
 `/api/aria/click/<requestId>`; the card also posts each click to Nova's `/api/aria/card-events`, which forwards
 it to Aria's `POST /api/v1/events` as a signal that is not billed.
 
