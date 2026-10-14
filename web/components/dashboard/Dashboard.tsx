@@ -6,8 +6,10 @@ import { getAddress, type Address } from "viem";
 import { toDashboardView, type CardView, type DashboardView, type FeedRow } from "../../app/dashboard/view-model";
 import type { Tone } from "../../app/receipt/view-model";
 import type { DashboardJson } from "../../lib/dashboard-data";
+import { demoLogin } from "../../lib/demo-login";
 import { demoKeyHeaders } from "../../lib/demo-key-client";
 import { AriaEyebrow } from "../AriaBrand";
+import TestLogin from "../TestLogin";
 import { Section } from "../receipt/ReceiptDocument";
 import IntegrationPanel from "./IntegrationPanel";
 import RetryPayoutButton from "./RetryPayoutButton";
@@ -50,6 +52,7 @@ function SignedOut({ onLogin, ready }: { onLogin: () => void; ready: boolean }) 
         </button>
         <p className="text-sm text-stone-500">We email you a one-time code. No password.</p>
       </div>
+      <TestLogin login={demoLogin()} note="It is the AI app that earns from the demo's sponsored answers." />
     </div>
   );
 }

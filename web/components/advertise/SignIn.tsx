@@ -1,3 +1,5 @@
+import { demoLogin } from "../../lib/demo-login";
+import TestLogin from "../TestLogin";
 import { Eyebrow, PRIMARY } from "./ui";
 
 /** Signed-out landing for the advertiser console. */
@@ -18,6 +20,7 @@ export default function SignIn({ onLogin, ready }: { onLogin: () => void; ready:
         </button>
         <p className="text-sm text-stone-500">We email you a one-time code. No password.</p>
       </div>
+      <TestLogin login={demoLogin()} note="Its wallet gets test USDC and MON for a campaign; it is shared, so you will see campaigns other visitors launched." />
     </div>
   );
 }
