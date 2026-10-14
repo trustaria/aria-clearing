@@ -30,6 +30,7 @@ import {
   fundingChecks,
   reduceLaunch,
   runWalletLaunch,
+  walletPending,
   type LaunchEvent,
   type LaunchOps,
 } from "../components/advertise/funding";
@@ -385,6 +386,7 @@ describe("wallet funding", () => {
     onCheckAgain: () => {},
     onBack: () => {},
     onLaunch: () => {},
+    onOpenCampaign: () => {},
     ...overrides,
   });
   const render = (overrides: Partial<FundingPanelProps> = {}) => renderToStaticMarkup(<FundingPanel {...props(overrides)} />);
@@ -504,6 +506,25 @@ describe("wallet funding", () => {
     );
   });
 
+  it("offers the campaign page once the launch is live, in place of Launch", () => {
+    const html = render({ launch: { phase: "live", approved: true, slug: "axy-digital-uxwv", txHash: ESCROW_TX } });
+    expect(html).toContain("Open your campaign");
+    expect(html).not.toMatch(/>Launch<\/button>/);
+    expect(render()).not.toContain("Open your campaign");
+  });
+
+  it("says where a wallet launch is charged from, with the production onramp", () => {
+    const panel = (walletReady: boolean) =>
+      renderToStaticMarkup(
+        <LaunchPanel budgetCents={500} submitting={false} progress={null} error={null} funding="wallet" walletReady={walletReady} onBack={() => {}} onLaunch={() => {}} />,
+      );
+    expect(panel(true)).toContain("charged from your campaign wallet");
+    expect(panel(true)).not.toContain("Test funding");
+    expect(panel(false)).toContain("Test funding");
+    expect(panel(false)).toContain("Aria adds test dollars");
+    for (const html of [panel(true), panel(false)]) expect(html).toContain("Privy&#x27;s onramp");
+  });
+
   it("keeps the treasury launch box unless the funding is the advertiser's wallet", () => {
     const panel = (funding?: "wallet" | "treasury") =>
       renderToStaticMarkup(
@@ -549,5 +570,15 @@ describe("wallet client calls", () => {
       throw new Error("offline");
     }) as unknown as typeof fetch);
     expect(await offline.prepare({ ...product, claims, category: "food and drink", keywords: [], budgetCents: 500, cpcCents: 25, cpmCents: 1000 })).toEqual({ error: "" });
+  });
+});
+
+describe("walletPending", () => {
+  it("waits for the wallet only in wallet mode while the server has no address yet", () => {
+    const info = { clearing: "0x431e97E2EB23ac06C9f807cC8DCe54499C1bDC7B", usdc: "0x534b2f3A21130d7a60830c2Df862319e593943A3" };
+    expect(walletPending("wallet", null)).toBe(true);
+    expect(walletPending("wallet", { ...info, address: null })).toBe(true);
+    expect(walletPending("wallet", { ...info, address: "0xA1e30402F76dF7B636Da8C08A0fc883516dbD5b4" })).toBe(false);
+    expect(walletPending("treasury", null)).toBe(false);
   });
 });

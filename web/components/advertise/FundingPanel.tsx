@@ -25,6 +25,8 @@ export type FundingPanelProps = {
   onCheckAgain: () => void;
   onBack: () => void;
   onLaunch: () => void;
+  /** Opens the campaign page once the launch is live. */
+  onOpenCampaign: (slug: string) => void;
 };
 
 function CopyAddress({ address }: { address: string }) {
@@ -193,9 +195,15 @@ export default function FundingPanel(props: FundingPanelProps) {
         <button type="button" onClick={props.onBack} disabled={busy} className={SECONDARY}>
           Back
         </button>
-        <button type="button" onClick={props.onLaunch} disabled={busy || !(checks.ready || launch.unconfirmed)} aria-busy={busy} className={PRIMARY}>
-          Launch
-        </button>
+        {launch.phase === "live" && launch.slug ? (
+          <button type="button" onClick={() => props.onOpenCampaign(launch.slug as string)} className={PRIMARY}>
+            Open your campaign →
+          </button>
+        ) : (
+          <button type="button" onClick={props.onLaunch} disabled={busy || !(checks.ready || launch.unconfirmed)} aria-busy={busy} className={PRIMARY}>
+            Launch
+          </button>
+        )}
       </div>
 
       <Progress launch={launch} amount={amount} />

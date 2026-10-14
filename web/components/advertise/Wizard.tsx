@@ -33,7 +33,9 @@ import {
   validateProduct,
   type ProductInput,
 } from "./rules";
+import { fundingChecks, walletPending } from "./funding";
 import { FieldError, INPUT, LINK, PRIMARY, SECONDARY, inputBorder } from "./ui";
+import { useAdvertiserWallet } from "./useAdvertiserWallet";
 
 export type Step = 1 | 2 | 3 | 4;
 
@@ -59,6 +61,9 @@ const STEPS: { step: Step; label: string }[] = [
 
 const EMPTY_ROWS = ["", "", ""];
 const PROGRESS_MS = [400, 1200];
+/** How often the wizard asks again for a wallet Privy has not created yet. */
+const WALLET_POLL_MS = 3_000;
+const UNITS_PER_CENT = 10_000n;
 
 export const INITIAL_STATE: WizardState = {
   product: { brand: "", url: "", description: "" },
@@ -676,6 +681,7 @@ export function LaunchPanel({
   progress,
   error,
   funding = "treasury",
+  walletReady = false,
   onBack,
   onLaunch,
 }: {
@@ -685,6 +691,8 @@ export function LaunchPanel({
   error: string | null;
   /** wallet: the advertiser's own wallet funds the launch, so the treasury notice is replaced. */
   funding?: FundingMode;
+  /** The advertiser's wallet already holds the budget and the network fees. */
+  walletReady?: boolean;
   onBack: () => void;
   onLaunch: () => void;
 }) {
@@ -695,9 +703,16 @@ export function LaunchPanel({
       </p>
       {funding === "wallet" ? (
         <div className="rounded-xl border border-stone-300 bg-stone-50 px-5 py-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-stone-500">Funding</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-stone-500">
+            {walletReady ? "Funding" : "Test funding"}
+          </p>
           <p className="mt-2 text-[15px] leading-relaxed text-stone-800">
-            Your {dollars(budgetCents)} budget moves from your campaign wallet into escrow when you launch.
+            {walletReady
+              ? `Your ${dollars(budgetCents)} budget is charged from your campaign wallet, which holds enough, and moves into escrow when you launch.`
+              : `This is a test network. No card is charged. Your campaign wallet doesn't hold enough yet: on the next step Aria adds test dollars to it, then your ${dollars(budgetCents)} budget moves into escrow.`}
+          </p>
+          <p className="mt-2 text-sm leading-relaxed text-stone-500">
+            In production, Privy&apos;s onramp funds this wallet from a card payment.
           </p>
         </div>
       ) : (
@@ -808,6 +823,8 @@ export type WalletLaunchArgs = {
   onLaunched: (slug: string) => void;
   /** True while a launch runs, so the wizard locks its steps. */
   onBusy: (busy: boolean) => void;
+  /** Asks the server for the advertiser's wallet again. */
+  refreshWallet: () => void;
 };
 
 /**
@@ -849,21 +866,38 @@ export default function Wizard({
   const launching = useRef(false);
   const top = useRef<HTMLDivElement>(null);
 
+  const loadInfo = useCallback(
+    (live: () => boolean = () => true) =>
+      client
+        .listCampaigns()
+        .then((r) => {
+          if (!live()) return;
+          setMaxBudget(r.maxBudget);
+          setFunding(r.funding ?? "treasury");
+          setWallet(r.wallet ?? null);
+        })
+        .catch(() => undefined),
+    [client],
+  );
+
   useEffect(() => {
     let live = true;
-    client
-      .listCampaigns()
-      .then((r) => {
-        if (!live) return;
-        setMaxBudget(r.maxBudget);
-        setFunding(r.funding ?? "treasury");
-        setWallet(r.wallet ?? null);
-      })
-      .catch(() => undefined);
+    void loadInfo(() => live);
     return () => {
       live = false;
     };
-  }, [client]);
+  }, [loadInfo]);
+
+  const pending = walletPending(funding, wallet);
+  useEffect(() => {
+    if (!pending) return;
+    let live = true;
+    const timer = setInterval(() => void loadInfo(() => live), WALLET_POLL_MS);
+    return () => {
+      live = false;
+      clearInterval(timer);
+    };
+  }, [pending, loadInfo]);
 
   const go = useCallback((s: Step) => {
     setStep(s);
@@ -967,6 +1001,9 @@ export default function Wizard({
   const budget = budgetCents(state) ?? 0;
   const walletStep = funding === "wallet" && walletLaunch && wallet ? { render: walletLaunch, wallet } : null;
   const walletMode = walletStep !== null;
+  const budgetUnits = BigInt(budget) * UNITS_PER_CENT;
+  const reviewFunds = useAdvertiserWallet(walletMode ? wallet : null, budgetUnits, walletMode && step === 4 && !fundingOpen);
+  const walletReady = fundingChecks(reviewFunds.balances, budgetUnits, reviewFunds.monNeeded).ready;
 
   return (
     <div ref={top} className="grid scroll-mt-6 gap-8 md:grid-cols-[12rem_minmax(0,1fr)] md:gap-10">
@@ -1015,6 +1052,7 @@ export default function Wizard({
                   onBack: () => setFundingOpen(false),
                   onLaunched,
                   onBusy: setSubmitting,
+                  refreshWallet: () => void loadInfo(),
                 })
               ) : (
                 <LaunchPanel
@@ -1023,6 +1061,7 @@ export default function Wizard({
                   progress={progress}
                   error={launchError}
                   funding={walletMode ? "wallet" : "treasury"}
+                  walletReady={walletReady}
                   onBack={() => go(3)}
                   onLaunch={walletMode ? () => setFundingOpen(true) : () => void launch()}
                 />
