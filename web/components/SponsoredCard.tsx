@@ -16,7 +16,7 @@ export function adForView(ad: AdPayload, hold: boolean): AdPayload {
 
 /**
  * Nova's sponsored card: AriaAdCard themed by the `.nova-ad` variables, with the receipt JSON
- * beside it. `inert` sends its beacon and events to the sink.
+ * beside it. `inert` sends its beacon and events to the sink and keeps light colours, for previews on white panels.
  */
 export default function SponsoredCard({ ad, receipt, inert = false }: { ad: AdPayload; receipt: Receipt; inert?: boolean }) {
   const hold = useHoldViews() || inert;
@@ -24,7 +24,14 @@ export default function SponsoredCard({ ad, receipt, inert = false }: { ad: AdPa
   const shown = useMemo(() => adForView(ad, hold), [ad, hold]);
 
   return (
-    <div data-aria-card="" className="nova-ad mt-3 rounded-md pr-2 transition hover:bg-neutral-50 dark:hover:bg-neutral-900">
+    <div
+      data-aria-card=""
+      className={
+        inert
+          ? "nova-ad nova-ad-light mt-3 rounded-md pr-2"
+          : "nova-ad mt-3 rounded-md pr-2 transition hover:bg-neutral-50 dark:hover:bg-neutral-900"
+      }
+    >
       <AriaAdCard
         ad={shown}
         appearance="blockquote"
