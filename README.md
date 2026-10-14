@@ -224,7 +224,7 @@ KIMI call to fit low rate-limit accounts (defaults: 3 requests per minute, 1 at 
 
 ## Advertisers
 
-`/advertise` is a minimal campaign console modelled on Google Ads, for brands that know nothing about crypto:
+`/advertise` is a minimal campaign console for brands that know nothing about crypto:
 sign in with email, paste your website (**Read my website**: the server fetches the page, https only and never
 private addresses, and KIMI drafts the brand, a description, 3–5 factual claims, a category and topics), approve
 the claims (the exact text that goes onchain), pick a budget and CPC/CPM bids, and launch. Describing the product
