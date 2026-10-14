@@ -196,15 +196,14 @@ Rules: `ops/src/policy.ts`. Probes: `pnpm --filter @aria-clearing/ops privy:prob
 
 ## How the ad is served
 
-**Nova gets its ad through the SDK.** Nova is a publisher: its chat route calls Aria's serve API through Aria's
-publisher SDK, `@trustaria/core` (`createAria(...).serve({ prompt, context, sessionId })`), at the same time as it
-starts its own answer. The serve API (`POST /api/v1/serve`, Bearer `ARIA_API_KEY`) picks at most one live campaign
-independently of the answer, records the served sentence for the clearing, and answers with the ad (or a typed
-no-fill); Nova re-validates it against the campaign's claims and shows the card after the answer. A no-fill, a
-timeout (Nova's budget is `ARIA_SERVE_TIMEOUT_MS`, default 6 s) or an error only means no card. By default Nova
-calls its own server (`ARIA_BASE_URL` points it elsewhere); set `ARIA_PUBLIC_URL` to the public origin so the ad's
-click, why and beacon URLs are absolute public links (the card follows them as served, so a deployed server needs
-it). The dashboard's Integration panel shows the same few lines a publisher adds.
+**Nova gets its ad through the SDK.** Nova is a publisher. While it writes its answer, it asks for an ad with
+Aria's publisher SDK, `@trustaria/core` (`createAria(...).serve({ prompt, context, sessionId })`), and shows the ad
+as a card under the answer. If no ad comes back in time (`ARIA_SERVE_TIMEOUT_MS`, default 6 s), there is no card.
+The dashboard's Integration panel shows the same few lines a publisher adds.
+
+In this demo the SDK calls a mock of Aria's ad server, built into this repo (`POST /api/v1/serve`). In production
+the same SDK calls Aria's live API; only its `baseUrl` changes (`ARIA_BASE_URL`). On a deployed server, set
+`ARIA_PUBLIC_URL` to the public origin so the ad's links are absolute.
 
 **The card.** Nova renders the served ad with `@trustaria/react`'s `AriaAdCard` (blockquote style, the whole card
 clickable) and puts the receipt JSON beside it. The impression is measured in the browser: at least 50 % of the
