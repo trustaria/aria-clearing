@@ -39,8 +39,10 @@ publisher), `/dashboard` is Aria's publisher dashboard, `/advertise` is Aria's a
    claims, test funds are added to your embedded wallet, and your wallet escrows the budget.
 
 The dashboard and the console sign in with an email and a one-time code (Privy). Both sign-in screens show a
-shared test account whose code is fixed, so no email is sent; any other email works too. Launches and test funds
-are counted per account, so use your own email for step 4 if the shared account has used its launches.
+shared test account whose code is fixed, so no email is sent. Use it for the dashboard: on the live site it is
+the publisher that Nova's events are credited to (connecting another account as the publisher is a demo control
+behind `ARIA_DEMO_KEY`, so a new email sees an empty dashboard). For the console any email works; launches and
+test funds are counted per account, so use your own email for step 4.
 
 ## The receipt
 
@@ -247,8 +249,8 @@ disputes and End from Aria's deployer key. It stands in for an onramp: in produc
 this wallet from a card payment, and the top-up step disappears for the brand.
 
 **Launch caps.** Test funds go out once per account by default (`ARIA_TEST_FUNDS_PER_USER`); a campaign's budget is
-capped by `ARIA_LAUNCH_MAX_USD` and launches per account by `ARIA_LAUNCH_PER_USER` (unset means no cap; the live
-site sets both, and the console says so when a cap is reached). Requests carrying the demo key skip all three.
+capped by `ARIA_LAUNCH_MAX_USD` and launches per account by `ARIA_LAUNCH_PER_USER` (unset means no cap; the
+console says so when a cap is reached). Requests carrying the demo key skip all three.
 
 **Treasury fallback** (`ADVERTISER_FUNDING=treasury`, the default). Funding is honest test funding: "This is a
 test network. No card is charged." Aria's treasury server wallet is the onchain advertiser and acts for the brand
@@ -348,10 +350,11 @@ server wallet (`privy:relayer`, below); real answers need `KIMI_API_KEY` and `KI
 (`NEXT_PUBLIC_DEMO_LOGIN_EMAIL` and `_CODE`, both or neither) is shown on the sign-in screens when set.
 
 **Single-tenant demo server.** The web app holds the relayer's and the treasury's credentials and the deployer
-key, and keeps its served cards, events and campaigns in JSON files under `web/.data` (`ARIA_DATA_DIR`). Its demo
-controls (forge, dispute, "Relayer tries to pay", publisher registration) are open unless `ARIA_DEMO_KEY` is set;
-with it set, as on the live site, they need the key. Set it before hosting a copy anywhere public. The live site
-runs the `Dockerfile` on Railway (`railway.json`).
+key, and keeps its served cards and events (`events.json`), console campaigns (`campaigns.json`) and the
+publisher address (`publisher.json`) under `web/.data` (`ARIA_DATA_DIR`). Its demo controls (forge, dispute,
+"Relayer tries to pay", connecting the signed-in dashboard account as the publisher) are open unless
+`ARIA_DEMO_KEY` is set; with it set, as on the live site, they need the key. Set it before hosting a copy
+anywhere public. The live site runs the `Dockerfile` on Railway (`railway.json`).
 
 **Settle pending events** (after the dispute window). The `settle` GitHub Action does this every 10 minutes for the
 live contract (secrets in [`cre/README.md`](cre/README.md#scheduled-settlement)); to run the CRE workflow once,
